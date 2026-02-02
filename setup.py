@@ -183,6 +183,7 @@ function Get-ProxyStatus {{
 # 快捷别名
 Set-Alias -Name proxy-sync -Value Sync-ProxyToTools
 Set-Alias -Name proxy-status -Value Get-ProxyStatus
+# 注意：Lock-Proxy 和 Unlock-Proxy 直接作为函数使用，不设置别名避免冲突
 
 # 启动时自动检测（快速，约 50ms）
 Set-AutoProxy

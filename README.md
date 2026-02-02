@@ -93,6 +93,8 @@ Set-AutoProxy
 | `Get-ProxyStatus` 或 `proxy-status` | 查看当前状态 |
 | `Sync-ProxyToTools` 或 `proxy-sync` | 同步代理到 git/npm/scoop |
 
+**注意**：PowerShell 命令使用 **首字母大写** 格式（如 `Lock-Proxy`），别名使用 **全小写** 格式（如 `proxy-status`）。
+
 ### 代理检测原理
 
 读取 Windows 注册表中的代理开关状态：

@@ -27,6 +27,8 @@ python test_setup.py
 | `Sync-ProxyToTools` | 同步代理到工具 | 同步到 git/npm/scoop |
 | `proxy-sync` | 同步代理（别名） | 同上 |
 
+**注意**：PowerShell 函数使用 **首字母大写** 格式（如 `Lock-Proxy`），别名使用 **全小写-连字符** 格式（如 `proxy-status`）。
+
 ### 手动控制
 
 | 命令 | 说明 |
