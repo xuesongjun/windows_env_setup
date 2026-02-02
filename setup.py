@@ -174,7 +174,7 @@ def get_pwsh_path():
 
 
 def setup_powershell_profile():
-    """配置 PowerShell 7 profile"""
+    """配置 PowerShell 7 profile（追加模式，不覆盖现有配置）"""
     print_step("配置 PowerShell 7 Profile...")
 
     # PowerShell 7 profile 路径
@@ -191,24 +191,30 @@ def setup_powershell_profile():
         proxy_host_port=PROXY_HOST_PORT
     )
 
-    # 检查是否已存在
+    # 检查是否已存在且包含配置
     if ps_profile_path.exists():
-        existing_content = ps_profile_path.read_text(encoding='utf-8')
+        existing_content = ps_profile_path.read_text(encoding='utf-8', errors='ignore')
+
+        # 检查是否已包含我们的配置
         if "智能代理配置" in existing_content:
             print_warn(f"Profile 已包含代理配置，跳过: {ps_profile_path}")
             return True
 
-        # 备份现有文件
-        backup_path = ps_profile_path.with_suffix('.ps1.bak')
-        ps_profile_path.rename(backup_path)
-        print_ok(f"已备份现有 profile: {backup_path}")
-
-        # 合并内容
-        profile_content = existing_content + "\n\n" + profile_content
-
-    # 写入文件
-    ps_profile_path.write_text(profile_content, encoding='utf-8')
-    print_ok(f"已创建/更新 profile: {ps_profile_path}")
+        # 文件存在且有内容，追加配置
+        if existing_content.strip():
+            print_ok(f"检测到现有 profile，将追加配置")
+            with open(ps_profile_path, 'a', encoding='utf-8') as f:
+                f.write("\n\n# ========== 以下由 windows_env_setup 自动添加 ==========\n")
+                f.write(profile_content)
+            print_ok(f"已追加配置到: {ps_profile_path}")
+        else:
+            # 文件为空，直接写入
+            ps_profile_path.write_text(profile_content, encoding='utf-8')
+            print_ok(f"已创建 profile: {ps_profile_path}")
+    else:
+        # 文件不存在，创建新文件
+        ps_profile_path.write_text(profile_content, encoding='utf-8')
+        print_ok(f"已创建 profile: {ps_profile_path}")
 
     # 同时配置 Windows PowerShell 5.x（可选）
     ps5_profile_dir = Path.home() / "Documents" / "WindowsPowerShell"
@@ -378,15 +384,28 @@ def setup_ssl_workarounds():
 
     results = []
 
-    # 1. 创建 ~/.curlrc
+    # 1. 配置 ~/.curlrc（追加模式）
     curlrc_path = Path.home() / ".curlrc"
     try:
-        curlrc_content = "# 跳过 SSL 证书验证（解决缺少根证书问题）\ninsecure\n"
-        curlrc_path.write_text(curlrc_content, encoding='utf-8')
-        print_ok(f"已创建 ~/.curlrc (curl 跳过证书验证)")
+        if curlrc_path.exists():
+            existing_content = curlrc_path.read_text(encoding='utf-8', errors='ignore')
+            if "insecure" in existing_content:
+                print_ok("~/.curlrc 已包含 insecure 配置")
+            elif existing_content.strip():
+                # 追加配置
+                with open(curlrc_path, 'a', encoding='utf-8') as f:
+                    f.write("\n# 跳过 SSL 证书验证（解决缺少根证书问题）\ninsecure\n")
+                print_ok("已追加 insecure 到 ~/.curlrc")
+            else:
+                # 文件为空
+                curlrc_path.write_text("# 跳过 SSL 证书验证（解决缺少根证书问题）\ninsecure\n", encoding='utf-8')
+                print_ok("已创建 ~/.curlrc")
+        else:
+            curlrc_path.write_text("# 跳过 SSL 证书验证（解决缺少根证书问题）\ninsecure\n", encoding='utf-8')
+            print_ok("已创建 ~/.curlrc (curl 跳过证书验证)")
         results.append(True)
     except Exception as e:
-        print_err(f"创建 ~/.curlrc 失败: {e}")
+        print_err(f"配置 ~/.curlrc 失败: {e}")
         results.append(False)
 
     # 2. 配置 Git 跳过 SSL 验证
@@ -429,7 +448,7 @@ def setup_ssl_workarounds():
 
 def setup_git_bash():
     """
-    配置 Git Bash 的 UTF-8 和 Emoji 支持
+    配置 Git Bash 的 UTF-8 和 Emoji 支持（追加模式，不覆盖现有配置）
 
     配置文件：
     - ~/.minttyrc: MinTTY 终端配置（字体、编码）
@@ -454,11 +473,34 @@ BoldAsFont=no
 AllowBlinking=yes
 """
     try:
-        minttyrc_path.write_text(minttyrc_content, encoding='utf-8')
-        print_ok(f"已创建 ~/.minttyrc (Git Bash 终端配置)")
+        if minttyrc_path.exists():
+            existing_content = minttyrc_path.read_text(encoding='utf-8', errors='ignore')
+            # 检查是否已包含我们的配置
+            if "Charset=UTF-8" in existing_content and "Font=Cascadia" in existing_content:
+                print_ok("~/.minttyrc 已包含 UTF-8 和字体配置")
+            elif existing_content.strip():
+                # 文件有内容但缺少配置，追加关键配置
+                additions = []
+                if "Charset=UTF-8" not in existing_content:
+                    additions.append("Charset=UTF-8")
+                if "Font=Cascadia" not in existing_content:
+                    additions.append("Font=Cascadia Mono")
+                    additions.append("FontHeight=11")
+                if additions:
+                    with open(minttyrc_path, 'a', encoding='utf-8') as f:
+                        f.write("\n# Added by windows_env_setup\n")
+                        f.write("\n".join(additions) + "\n")
+                    print_ok("已追加配置到 ~/.minttyrc")
+            else:
+                # 文件为空
+                minttyrc_path.write_text(minttyrc_content, encoding='utf-8')
+                print_ok("已创建 ~/.minttyrc")
+        else:
+            minttyrc_path.write_text(minttyrc_content, encoding='utf-8')
+            print_ok("已创建 ~/.minttyrc (Git Bash 终端配置)")
         results.append(True)
     except Exception as e:
-        print_err(f"创建 ~/.minttyrc 失败: {e}")
+        print_err(f"配置 ~/.minttyrc 失败: {e}")
         results.append(False)
 
     # 2. 配置 .bash_profile
