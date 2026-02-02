@@ -7,11 +7,12 @@
 - [1. 智能代理配置](#1-智能代理配置)
 - [2. UTF-8 编码配置](#2-utf-8-编码配置)
 - [3. VS Code 配置](#3-vs-code-配置)
-- [4. Scoop 与 aria2 配置](#4-scoop-与-aria2-配置)
-- [5. SSL 证书验证配置（无管理员权限）](#5-ssl-证书验证配置无管理员权限)
-- [6. Claude Code Skills 配置](#6-claude-code-skills-配置)
-- [7. 已知问题](#7-已知问题)
-- [8. 快速安装](#8-快速安装)
+- [4. Git Bash 配置](#4-git-bash-配置)
+- [5. Scoop 与 aria2 配置](#5-scoop-与-aria2-配置)
+- [6. SSL 证书验证配置（无管理员权限）](#6-ssl-证书验证配置无管理员权限)
+- [7. Claude Code Skills 配置](#7-claude-code-skills-配置)
+- [8. 已知问题](#8-已知问题)
+- [9. 快速安装](#9-快速安装)
 
 ---
 
@@ -145,7 +146,7 @@ sys.stderr.reconfigure(encoding='utf-8')
 
 ## 3. VS Code 配置
 
-### 配置 PowerShell 7 为默认终端
+### 配置 PowerShell 7 为默认终端（含 Emoji 支持）
 
 **位置**: `%APPDATA%\Code\User\settings.json`
 
@@ -156,7 +157,7 @@ sys.stderr.reconfigure(encoding='utf-8')
         "PowerShell 7": {
             "path": "C:\\Users\\<用户名>\\AppData\\Local\\Programs\\PowerShell\\7.5.4\\pwsh.exe",
             "icon": "terminal-powershell",
-            "args": ["-NoLogo"],
+            "args": ["-NoExit", "-NoLogo", "-Command", "chcp 65001 > $null"],
             "env": {
                 "LANG": "en_US.UTF-8",
                 "LC_ALL": "en_US.UTF-8",
@@ -169,13 +170,22 @@ sys.stderr.reconfigure(encoding='utf-8')
         "LC_ALL": "en_US.UTF-8",
         "PYTHONIOENCODING": "utf-8"
     },
+    "terminal.integrated.fontFamily": "Cascadia Mono, Consolas, 'Courier New', monospace",
+    "terminal.integrated.unicodeVersion": "11",
+    "terminal.integrated.gpuAcceleration": "off",
     "files.encoding": "utf8",
     "files.autoGuessEncoding": true,
-    "terminal.integrated.gpuAcceleration": "off",
-    "terminal.integrated.unicodeVersion": "11",
     "terminal.external.windowsExec": "wt.exe"
 }
 ```
+
+### Emoji 支持关键配置
+
+| 配置项 | 值 | 作用 |
+|-------|-----|------|
+| `terminal.integrated.fontFamily` | `Cascadia Mono, ...` | 使用支持 Emoji 的字体 |
+| `terminal.integrated.unicodeVersion` | `11` | 使用 Unicode 11 宽度计算 |
+| `args` | `["-NoExit", "-Command", "chcp 65001"]` | 终端启动时设置 UTF-8 代码页 |
 
 ### 查找 PowerShell 7 路径
 
@@ -185,7 +195,47 @@ Get-Command pwsh | Select-Object Source
 
 ---
 
-## 4. Scoop 与 aria2 配置
+## 4. Git Bash 配置
+
+### .minttyrc（MinTTY 终端配置）
+
+**位置**: `~/.minttyrc`
+
+```ini
+# Git Bash (MinTTY) Configuration for UTF-8 and emoji support
+Charset=UTF-8
+Locale=en_US
+Font=Cascadia Mono
+FontHeight=11
+Term=xterm-256color
+CursorType=block
+Scrollbar=none
+BoldAsFont=no
+AllowBlinking=yes
+```
+
+### .bash_profile（Bash 环境变量）
+
+**位置**: `~/.bash_profile`
+
+```bash
+# UTF-8 Configuration for Git Bash
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export TERM=xterm-256color
+```
+
+### 关键配置说明
+
+| 配置项 | 作用 |
+|-------|------|
+| `Charset=UTF-8` | MinTTY 使用 UTF-8 字符集 |
+| `Font=Cascadia Mono` | 使用支持 Emoji 的字体 |
+| `LANG=en_US.UTF-8` | Bash 环境 UTF-8 |
+
+---
+
+## 5. Scoop 与 aria2 配置
 
 ### 什么是 aria2？
 
@@ -318,7 +368,7 @@ scoop install pandoc poppler qpdf tesseract
 
 ---
 
-## 5. SSL 证书验证配置（无管理员权限）
+## 6. SSL 证书验证配置（无管理员权限）
 
 ### 问题背景
 
@@ -418,7 +468,7 @@ Import-Certificate -FilePath "USERTrust_ECC_Root.crt" -CertStoreLocation Cert:\L
 
 ---
 
-## 6. Claude Code Skills 配置
+## 7. Claude Code Skills 配置
 
 ### Skills 目录结构
 
@@ -456,17 +506,28 @@ claude plugin install coderabbit@claude-plugins-official
 
 ---
 
-## 7. 已知问题
+## 8. 已知问题
 
 ### VS Code 终端 emoji 乱码
 
 **原因**: VS Code 终端基于 xterm.js，在 Windows 上的 Unicode 处理有问题。
 
-**状态**: GitHub 上多个 issue 未解决（2017 年至今）
+**解决方案**（本项目已集成）:
 
-**解决方案**:
-1. 使用 Windows Terminal（`Ctrl + Shift + C` 打开外部终端）
-2. 避免在脚本中使用 emoji
+1. **使用支持 Emoji 的字体**: `Cascadia Mono`
+2. **设置 Unicode 版本**: `terminal.integrated.unicodeVersion: "11"`
+3. **终端启动时设置代码页**: `args: ["-NoExit", "-Command", "chcp 65001"]`
+4. **关闭 GPU 加速**: `terminal.integrated.gpuAcceleration: "off"`
+
+运行 `python setup.py` 会自动配置以上设置。
+
+**字体安装**:
+- Windows 10/11 通常已预装 Cascadia Mono
+- 如未安装，可从 [GitHub Cascadia Code](https://github.com/microsoft/cascadia-code/releases) 下载
+
+**仍有问题时**:
+- 使用 Windows Terminal（`Ctrl + Shift + C` 打开外部终端）
+- 重启 VS Code 和 Claude Code
 
 相关 Issue:
 - [xtermjs/xterm.js#2693](https://github.com/xtermjs/xterm.js/issues/2693)
@@ -474,7 +535,7 @@ claude plugin install coderabbit@claude-plugins-official
 
 ---
 
-## 8. 快速安装
+## 9. 快速安装
 
 ### 前置条件
 
@@ -490,7 +551,8 @@ python setup.py
 
 该脚本会自动配置：
 - PowerShell Profile（代理检测、UTF-8 编码、SSL 环境变量）
-- VS Code 设置（PowerShell 7 终端）
+- VS Code 设置（PowerShell 7 终端、Emoji 支持）
+- Git Bash 配置（.minttyrc、.bash_profile UTF-8）
 - SSL 证书验证跳过（curl/Git/npm，无管理员权限方案）
 - Claude Code Skills 示例
 - Scoop aria2 下载器
