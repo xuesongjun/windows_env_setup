@@ -208,22 +208,102 @@ def test_windows_proxy_setting():
         return False
 
 
-def test_environment_variables():
-    """测试环境变量"""
-    print_test("代理环境变量")
+def test_proxy_configuration():
+    """
+    测试代理配置状态（融合 check_proxy.ps1 核心功能）
 
-    vars_to_check = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"]
+    检查：
+    1. 代理锁定状态
+    2. 用户级环境变量（新终端会读取）
+    3. 代理软件运行状态
+    4. Windows 系统代理开关
+    """
+    print_test("代理配置状态")
+
     results = []
 
-    for var in vars_to_check:
-        value = os.environ.get(var, "")
-        if value:
-            print_pass(f"{var}: {value}")
-        else:
-            print_info(f"{var}: (未设置)")
-        results.append(True)  # 环境变量是否设置取决于代理状态
+    # 1. 检查锁定文件
+    lock_file = Path.home() / ".proxy_lock"
+    is_locked = lock_file.exists()
 
-    return True
+    if is_locked:
+        print_pass("🔒 代理已锁定（不跟随系统设置）")
+        results.append(True)
+    else:
+        print_info("🔓 自动检测模式（跟随系统设置）")
+        results.append(True)
+
+    # 2. 检查用户级环境变量（重要：新终端会读取这个）
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "$http = [Environment]::GetEnvironmentVariable('HTTP_PROXY', 'User'); " +
+             "$https = [Environment]::GetEnvironmentVariable('HTTPS_PROXY', 'User'); " +
+             "Write-Host \"$http|$https\""],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        proxy_vars = result.stdout.strip().split('|')
+        user_http_proxy = proxy_vars[0] if len(proxy_vars) > 0 else ""
+
+        if user_http_proxy:
+            print_pass(f"用户级环境变量: {user_http_proxy}")
+            print_info("   (新终端会自动使用此代理)")
+            results.append(True)
+        else:
+            print_info("用户级环境变量: 未设置")
+            print_info("   (新终端不会使用代理)")
+            results.append(True)
+    except Exception as e:
+        print_warn(f"无法读取用户级环境变量: {e}")
+        results.append(False)
+
+    # 3. 检查代理软件运行状态
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if "33210" in result.stdout and "LISTENING" in result.stdout:
+            print_pass("代理软件正在运行（端口 33210 监听）")
+            results.append(True)
+        else:
+            print_warn("代理软件未运行（端口 33210 未监听）")
+            print_info("   如需使用代理，请启动 Clash/V2Ray")
+            results.append(False)
+    except Exception as e:
+        print_warn(f"无法检测代理软件: {e}")
+        results.append(False)
+
+    # 4. 检查 Windows 系统代理开关
+    try:
+        reg_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
+            proxy_enable, _ = winreg.QueryValueEx(key, "ProxyEnable")
+            if proxy_enable == 1:
+                print_info("Windows 系统代理开关: 开启")
+            else:
+                print_info("Windows 系统代理开关: 关闭")
+
+            # 给出配置建议
+            if is_locked and results[1] and results[2]:
+                print_info("")
+                print_pass("✅ 配置完美：代理已锁定且软件正在运行")
+                print_info("   Claude Code 等应用可以正常使用")
+            elif is_locked and not results[2]:
+                print_info("")
+                print_warn("⚠️ 代理已锁定但软件未运行")
+                print_info("   请启动代理软件（Clash/V2Ray）")
+    except Exception as e:
+        print_warn(f"无法读取系统代理设置: {e}")
+
+    print_info("")
+    print_info("💡 提示：运行 'pwsh check_proxy.ps1' 查看完整状态")
+
+    return all(results[:3])  # 前3项至少要通过
 
 
 def test_git_config():
@@ -295,6 +375,84 @@ def test_console_codepage():
     except Exception as e:
         print_warn(f"无法检测代码页: {e}")
         return True
+
+
+def test_system_utf8_setting():
+    """测试系统级 UTF-8 设置（重要！影响 Claude 输出）"""
+    print_test("系统 UTF-8 全局支持")
+
+    try:
+        # 读取系统代码页设置
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\Nls\CodePage",
+            0,
+            winreg.KEY_READ
+        )
+        acp_value, _ = winreg.QueryValueEx(key, "ACP")
+        winreg.CloseKey(key)
+
+        if acp_value == "65001":
+            print_pass(f"系统代码页: {acp_value} (UTF-8)")
+            print_info("✓ Claude Code 执行脚本时不会出现中文乱码")
+            return True
+        else:
+            print_fail(f"系统代码页: {acp_value} (非 UTF-8)")
+            print_warn("⚠ 这会导致 Claude Code 执行脚本时中文乱码！")
+            print_info("")
+            print_info("修复方法：")
+            print_info("  1. 以管理员身份运行: .\\enable_utf8_system.ps1")
+            print_info("  2. 重启计算机")
+            print_info("")
+            print_info("或手动设置：")
+            print_info("  控制面板 > 区域 > 管理 > 更改系统区域设置")
+            print_info("  > 勾选 'Beta: 使用 Unicode UTF-8 提供全球语言支持'")
+            return False
+
+    except PermissionError:
+        print_warn("无权限读取系统代码页（需要管理员权限）")
+        return True
+    except Exception as e:
+        print_warn(f"无法检测系统代码页: {e}")
+        return True
+
+
+def test_powershell_noprofile_encoding():
+    """测试 PowerShell -NoProfile 中文输出（模拟 Claude 执行场景）"""
+    print_test("PowerShell -NoProfile 中文输出")
+
+    try:
+        # 模拟 Claude Code 执行脚本的方式
+        result = subprocess.run(
+            ["pwsh", "-NoProfile", "-Command", "Write-Host '测试中文'; Write-Host '✅ 成功'"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        output = result.stdout.strip()
+
+        # 检查是否包含乱码
+        if "测试中文" in output and "✅" in output:
+            print_pass("中文和 Emoji 输出正常")
+            print_info(f"输出: {output}")
+            return True
+        elif "��" in output or len(output) < 5:
+            print_fail("中文输出乱码！")
+            print_info(f"乱码输出: {output}")
+            print_warn("这就是 Claude Code 看到的乱码输出")
+            print_info("")
+            print_info("原因：系统未启用 UTF-8 全局支持")
+            print_info("解决：运行 .\\enable_utf8_system.ps1 并重启")
+            return False
+        else:
+            print_warn("输出异常")
+            print_info(f"输出: {output}")
+            return False
+
+    except Exception as e:
+        print_fail(f"测试失败: {e}")
+        return False
 
 
 def test_scoop_aria2():
@@ -482,12 +640,14 @@ def main():
         ("PowerShell Profile", test_powershell_profile),
         ("VS Code 设置", test_vscode_settings),
         ("Windows 代理设置", test_windows_proxy_setting),
-        ("环境变量", test_environment_variables),
+        ("代理配置状态", test_proxy_configuration),  # 融合了环境变量和锁定状态检查
         ("Git 配置", test_git_config),
         ("Scoop aria2", test_scoop_aria2),
         ("SSL 证书配置", test_ssl_mitm),
         ("Claude Skills", test_claude_skills),
         ("控制台代码页", test_console_codepage),
+        ("系统 UTF-8 全局支持", test_system_utf8_setting),
+        ("PowerShell -NoProfile 中文输出", test_powershell_noprofile_encoding),
         ("Emoji 输出", test_emoji_output),
     ]
 
@@ -526,6 +686,10 @@ def main():
         print(f"\n{Colors.GREEN}所有测试通过！{Colors.RESET}")
     else:
         print(f"\n{Colors.YELLOW}有 {failed_count} 项测试未通过，请检查上述输出。{Colors.RESET}")
+        print(f"\n{Colors.BOLD}重要提醒：{Colors.RESET}")
+        print(f"如果 '系统 UTF-8 全局支持' 或 'PowerShell -NoProfile 中文输出' 失败，")
+        print(f"这会导致 Claude Code 执行脚本时出现中文乱码。")
+        print(f"请运行: {Colors.BOLD}.\\enable_utf8_system.ps1{Colors.RESET} (需管理员权限并重启)")
 
 
 if __name__ == "__main__":

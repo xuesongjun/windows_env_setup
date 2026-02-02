@@ -40,91 +40,151 @@ $env:LANG = "en_US.UTF-8"
 $env:LC_ALL = "en_US.UTF-8"
 chcp 65001 >$null 2>&1
 
-# 设置用户级环境变量（永久生效）
-[Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "User")
-[Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "User")
-
-# ========== 智能代理配置 ==========
+# ========== 智能代理配置（优化版：启动时只设置环境变量）==========
 $PROXY_HTTP = "{proxy_http}"
 $PROXY_SOCKS = "{proxy_socks}"
 $PROXY_HOST_PORT = "{proxy_host_port}"
 
-# 自动检测并设置代理（检测 Windows 代理设置开关）
+# 启动时自动检测代理（快速版：只设置当前会话环境变量）
 function Set-AutoProxy {{
     $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
     $proxyEnable = (Get-ItemProperty -Path $regPath -Name ProxyEnable -ErrorAction SilentlyContinue).ProxyEnable
 
     if ($proxyEnable -eq 1) {{
+        # 设置当前会话环境变量（快速，约 50ms）
         $env:HTTP_PROXY = $PROXY_HTTP
         $env:HTTPS_PROXY = $PROXY_HTTP
         $env:ALL_PROXY = $PROXY_SOCKS
-        [System.Environment]::SetEnvironmentVariable("HTTP_PROXY", $PROXY_HTTP, "User")
-        [System.Environment]::SetEnvironmentVariable("HTTPS_PROXY", $PROXY_HTTP, "User")
-        [System.Environment]::SetEnvironmentVariable("ALL_PROXY", $PROXY_SOCKS, "User")
-        git config --global http.proxy $PROXY_HTTP 2>$null
-        git config --global https.proxy $PROXY_HTTP 2>$null
-        scoop config proxy $PROXY_HOST_PORT 2>$null
-        npm config set proxy $PROXY_HTTP 2>$null
-        npm config set https-proxy $PROXY_HTTP 2>$null
-        Write-Host "[Proxy] Enabled: $PROXY_HTTP (env/git/scoop/npm + system)" -ForegroundColor Green
+
+        # 同时设置用户级环境变量（确保子进程如 Claude Code 能继承）
+        [Environment]::SetEnvironmentVariable("HTTP_PROXY", $PROXY_HTTP, "User")
+        [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $PROXY_HTTP, "User")
+        [Environment]::SetEnvironmentVariable("ALL_PROXY", $PROXY_SOCKS, "User")
+
+        Write-Host "[Proxy] $PROXY_HTTP (use 'Sync-ProxyToTools' to sync to git/npm/scoop)" -ForegroundColor Green
     }} else {{
+        # 清除当前会话环境变量
         $env:HTTP_PROXY = $null
         $env:HTTPS_PROXY = $null
         $env:ALL_PROXY = $null
-        [System.Environment]::SetEnvironmentVariable("HTTP_PROXY", $null, "User")
-        [System.Environment]::SetEnvironmentVariable("HTTPS_PROXY", $null, "User")
-        [System.Environment]::SetEnvironmentVariable("ALL_PROXY", $null, "User")
+
+        # 同时清除用户级环境变量（确保子进程不会错误使用代理）
+        [Environment]::SetEnvironmentVariable("HTTP_PROXY", $null, "User")
+        [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $null, "User")
+        [Environment]::SetEnvironmentVariable("ALL_PROXY", $null, "User")
+
+        Write-Host "[Proxy] Direct connection" -ForegroundColor Yellow
+    }}
+}}
+
+# 同步代理设置到外部工具（手动调用，耗时约 3-4 秒）
+function Sync-ProxyToTools {{
+    if ($env:HTTP_PROXY) {{
+        Write-Host "Syncing proxy to tools..." -ForegroundColor Cyan
+
+        # 设置用户级环境变量（对新进程永久生效）
+        [Environment]::SetEnvironmentVariable("HTTP_PROXY", $env:HTTP_PROXY, "User")
+        [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $env:HTTPS_PROXY, "User")
+        [Environment]::SetEnvironmentVariable("ALL_PROXY", $env:ALL_PROXY, "User")
+
+        # 配置各工具
+        git config --global http.proxy $env:HTTP_PROXY 2>$null
+        git config --global https.proxy $env:HTTP_PROXY 2>$null
+        scoop config proxy $PROXY_HOST_PORT 2>$null
+        npm config set proxy $env:HTTP_PROXY 2>$null
+        npm config set https-proxy $env:HTTP_PROXY 2>$null
+
+        Write-Host "[Sync] Proxy synced to git/scoop/npm + user env" -ForegroundColor Green
+    }} else {{
+        Write-Host "Clearing proxy from tools..." -ForegroundColor Cyan
+
+        # 清除用户级环境变量
+        [Environment]::SetEnvironmentVariable("HTTP_PROXY", $null, "User")
+        [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $null, "User")
+        [Environment]::SetEnvironmentVariable("ALL_PROXY", $null, "User")
+
+        # 清除工具配置
         git config --global --unset http.proxy 2>$null
         git config --global --unset https.proxy 2>$null
         scoop config rm proxy 2>$null
         npm config delete proxy 2>$null
         npm config delete https-proxy 2>$null
-        Write-Host "[Proxy] Direct connection (all cleared)" -ForegroundColor Yellow
+
+        Write-Host "[Sync] Proxy cleared from all tools" -ForegroundColor Yellow
     }}
 }}
 
-# 手动开启代理
+# 手动开启代理（同时同步到工具）
 function Enable-Proxy {{
     $env:HTTP_PROXY = $PROXY_HTTP
     $env:HTTPS_PROXY = $PROXY_HTTP
     $env:ALL_PROXY = $PROXY_SOCKS
-    [System.Environment]::SetEnvironmentVariable("HTTP_PROXY", $PROXY_HTTP, "User")
-    [System.Environment]::SetEnvironmentVariable("HTTPS_PROXY", $PROXY_HTTP, "User")
-    [System.Environment]::SetEnvironmentVariable("ALL_PROXY", $PROXY_SOCKS, "User")
-    git config --global http.proxy $PROXY_HTTP 2>$null
-    git config --global https.proxy $PROXY_HTTP 2>$null
-    scoop config proxy $PROXY_HOST_PORT 2>$null
-    npm config set proxy $PROXY_HTTP 2>$null
-    npm config set https-proxy $PROXY_HTTP 2>$null
-    Write-Host "[Proxy] Manually enabled (all + system)" -ForegroundColor Green
+    Write-Host "[Proxy] Enabled: $PROXY_HTTP (session)" -ForegroundColor Green
+
+    # 询问是否同步到工具
+    $response = Read-Host "Sync to git/npm/scoop? (Y/n)"
+    if ($response -ne 'n' -and $response -ne 'N') {{
+        Sync-ProxyToTools
+    }}
 }}
 
-# 手动关闭代理
+# 手动关闭代理（同时清除工具配置）
 function Disable-Proxy {{
     $env:HTTP_PROXY = $null
     $env:HTTPS_PROXY = $null
     $env:ALL_PROXY = $null
-    [System.Environment]::SetEnvironmentVariable("HTTP_PROXY", $null, "User")
-    [System.Environment]::SetEnvironmentVariable("HTTPS_PROXY", $null, "User")
-    [System.Environment]::SetEnvironmentVariable("ALL_PROXY", $null, "User")
-    git config --global --unset http.proxy 2>$null
-    git config --global --unset https.proxy 2>$null
-    scoop config rm proxy 2>$null
-    npm config delete proxy 2>$null
-    npm config delete https-proxy 2>$null
-    Write-Host "[Proxy] Disabled (all cleared)" -ForegroundColor Yellow
-}}
+    Write-Host "[Proxy] Disabled (session)" -ForegroundColor Yellow
 
-# 查看代理状态
-function Get-ProxyStatus {{
-    if ($env:HTTP_PROXY) {{
-        Write-Host "[Proxy] Current: $env:HTTP_PROXY" -ForegroundColor Green
-    }} else {{
-        Write-Host "[Proxy] Current: Direct (no proxy)" -ForegroundColor Yellow
+    # 询问是否清除工具配置
+    $response = Read-Host "Clear from git/npm/scoop? (Y/n)"
+    if ($response -ne 'n' -and $response -ne 'N') {{
+        Sync-ProxyToTools
     }}
 }}
 
-# 启动时自动检测
+# 查看代理状态（增强版：显示工具配置状态）
+function Get-ProxyStatus {{
+    Write-Host "`n=== Proxy Status ===" -ForegroundColor Cyan
+
+    # 当前会话
+    if ($env:HTTP_PROXY) {{
+        Write-Host "Session:  $env:HTTP_PROXY" -ForegroundColor Green
+    }} else {{
+        Write-Host "Session:  Direct (no proxy)" -ForegroundColor Yellow
+    }}
+
+    # 用户级环境变量
+    $userProxy = [Environment]::GetEnvironmentVariable("HTTP_PROXY", "User")
+    if ($userProxy) {{
+        Write-Host "User Env: $userProxy" -ForegroundColor Green
+    }} else {{
+        Write-Host "User Env: Not set" -ForegroundColor Gray
+    }}
+
+    # Git 配置
+    $gitProxy = git config --global --get http.proxy 2>$null
+    if ($gitProxy) {{
+        Write-Host "Git:      $gitProxy" -ForegroundColor Green
+    }} else {{
+        Write-Host "Git:      Not configured" -ForegroundColor Gray
+    }}
+
+    # npm 配置
+    $npmProxy = npm config get proxy 2>$null
+    if ($npmProxy -and $npmProxy -ne "null") {{
+        Write-Host "npm:      $npmProxy" -ForegroundColor Green
+    }} else {{
+        Write-Host "npm:      Not configured" -ForegroundColor Gray
+    }}
+
+    Write-Host "===================`n" -ForegroundColor Cyan
+}}
+
+# 快捷别名
+Set-Alias -Name proxy-sync -Value Sync-ProxyToTools
+Set-Alias -Name proxy-status -Value Get-ProxyStatus
+
+# 启动时自动检测（快速，约 50ms）
 Set-AutoProxy
 '''
 
@@ -538,6 +598,44 @@ test -f ~/.bashrc && . ~/.bashrc
     return all(results)
 
 
+def check_system_utf8():
+    """检查并提示启用 Windows UTF-8 全局支持"""
+    print_step("检查系统 UTF-8 设置...")
+
+    try:
+        # 读取注册表检查当前代码页
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\Nls\CodePage",
+            0,
+            winreg.KEY_READ
+        )
+        acp_value, _ = winreg.QueryValueEx(key, "ACP")
+        winreg.CloseKey(key)
+
+        if acp_value == "65001":
+            print_ok("系统已启用 UTF-8 全局支持 (代码页 65001)")
+            return True
+        else:
+            print_warn(f"系统当前使用代码页 {acp_value} (非 UTF-8)")
+            print_warn("这会导致 Claude Code 执行脚本时出现中文乱码")
+            print("")
+            print("    建议启用 Windows UTF-8 全局支持：")
+            print("    1. 以管理员身份运行 PowerShell")
+            print("    2. 执行: .\\enable_utf8_system.ps1")
+            print("    3. 重启计算机")
+            print("")
+            print("    或手动设置：")
+            print("    控制面板 > 区域 > 管理 > 更改系统区域设置")
+            print("    > 勾选 'Beta: 使用 Unicode UTF-8 提供全球语言支持'")
+            print("")
+            return False
+
+    except Exception as e:
+        print_warn(f"无法检查系统代码页设置: {e}")
+        return False
+
+
 def setup_claude_skills():
     """配置 Claude Code Skills 目录"""
     print_step("配置 Claude Code Skills...")
@@ -634,6 +732,9 @@ def main():
     if sys.platform != 'win32':
         print_err("此脚本仅支持 Windows")
         sys.exit(1)
+
+    # 检查系统 UTF-8 设置（重要！）
+    check_system_utf8()
 
     results = []
 

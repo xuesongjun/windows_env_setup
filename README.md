@@ -5,14 +5,15 @@
 ## 目录
 
 - [1. 智能代理配置](#1-智能代理配置)
-- [2. UTF-8 编码配置](#2-utf-8-编码配置)
-- [3. VS Code 配置](#3-vs-code-配置)
-- [4. Git Bash 配置](#4-git-bash-配置)
-- [5. Scoop 与 aria2 配置](#5-scoop-与-aria2-配置)
-- [6. SSL 证书验证配置（无管理员权限）](#6-ssl-证书验证配置无管理员权限)
-- [7. Claude Code Skills 配置](#7-claude-code-skills-配置)
-- [8. 已知问题](#8-已知问题)
-- [9. 快速安装](#9-快速安装)
+- [2. 启动速度优化](#2-启动速度优化)
+- [3. UTF-8 编码配置](#3-utf-8-编码配置)
+- [4. VS Code 配置](#4-vs-code-配置)
+- [5. Git Bash 配置](#5-git-bash-配置)
+- [6. Scoop 与 aria2 配置](#6-scoop-与-aria2-配置)
+- [7. SSL 证书验证配置（无管理员权限）](#7-ssl-证书验证配置无管理员权限)
+- [8. Claude Code Skills 配置](#8-claude-code-skills-配置)
+- [9. 已知问题](#9-已知问题)
+- [10. 快速安装](#10-快速安装)
 
 ---
 
@@ -23,6 +24,7 @@
 - 启动 PowerShell 时自动检测 Windows 代理设置开关
 - 代理开启时自动配置：环境变量、Git、Scoop、npm
 - 代理关闭时自动清除所有代理配置
+- **代理锁定模式**：保持代理始终开启，不跟随系统代理开关（推荐用于 Claude Code）
 
 ### 配置文件
 
@@ -84,9 +86,12 @@ Set-AutoProxy
 | 命令 | 功能 |
 |------|------|
 | `Set-AutoProxy` | 重新检测代理状态 |
+| `Lock-Proxy` | 🔒 锁定代理（不跟随系统设置，始终开启） |
+| `Unlock-Proxy` | 🔓 解锁代理（恢复自动检测） |
 | `Enable-Proxy` | 强制开启代理 |
 | `Disable-Proxy` | 强制关闭代理 |
-| `Get-ProxyStatus` | 查看当前状态 |
+| `Get-ProxyStatus` 或 `proxy-status` | 查看当前状态 |
+| `Sync-ProxyToTools` 或 `proxy-sync` | 同步代理到 git/npm/scoop |
 
 ### 代理检测原理
 
@@ -98,9 +103,187 @@ HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ProxyEnable
 - 值为 0：代理关闭
 ```
 
+### 🔒 代理锁定模式（推荐用于 Claude Code）
+
+**为什么需要代理锁定？**
+
+在使用 Claude Code 等需要稳定代理连接的应用时，可能会遇到以下问题：
+
+| 场景 | 问题 | 原因 |
+|------|------|------|
+| 关闭系统代理后打开新终端 | Claude Code 无法连接 | 新终端没有代理环境变量 |
+| 代理开启时的旧终端 | 关闭代理后仍能正常使用 | 旧终端保留了代理环境变量 |
+| API 中转站访问 | 直连慢且不稳定 | 通过代理访问更快更稳定 |
+
+**解决方案：锁定代理模式**
+
+代理锁定后，无论 Windows 系统代理开关状态如何，代理环境变量始终存在。
+
+**使用方法**：
+
+```powershell
+# 锁定代理（推荐）
+Lock-Proxy
+
+# 效果：
+# - 所有新打开的终端都会自动设置代理环境变量
+# - Claude Code 等应用随时可用
+# - 只要代理软件（Clash）在运行即可，无需开启系统代理开关
+
+# 查看状态
+Get-ProxyStatus  # 或 proxy-status
+
+# 解锁（恢复自动检测）
+Unlock-Proxy
+```
+
+**工作原理**：
+
+```
+锁定前（自动检测模式）：
+Windows 系统代理开关 ON  → 设置 HTTP_PROXY 环境变量 → 应用使用代理
+Windows 系统代理开关 OFF → 清除 HTTP_PROXY 环境变量 → 应用直连
+
+锁定后（锁定模式）：
+无论系统代理开关状态 → HTTP_PROXY 始终设置 → 应用始终使用代理
+```
+
+**适用场景**：
+
+- ✅ 使用 Claude Code 等需要稳定代理的应用
+- ✅ API 中转站通过代理访问更快更稳定
+- ✅ 希望代理配置独立于系统代理开关
+- ✅ 代理软件始终在后台运行（如 Clash 常驻）
+
+**注意事项**：
+
+- ⚠️ 锁定后需要确保代理软件（Clash/V2Ray）始终运行
+- ⚠️ 如果代理软件未运行，应用将无法连接网络
+- ⚠️ 浏览器等系统级应用仍跟随系统代理开关（不受锁定影响）
+
 ---
 
-## 2. UTF-8 编码配置
+## 2. 启动速度优化
+
+### 问题
+
+PowerShell 启动缓慢（>1秒），主要由于：
+1. 每次启动都调用外部命令（git/npm/scoop config）
+2. Conda 初始化调用 `conda.exe`（约 1.3 秒）
+
+### 优化方案
+
+#### 代理配置优化（已集成到 setup.py）
+
+**原理**：启动时同步设置会话和用户级环境变量，但不调用外部命令。
+
+```powershell
+# 优化版本（约 100ms）
+function Set-AutoProxy {
+    $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+    $proxyEnable = (Get-ItemProperty -Path $regPath -Name ProxyEnable).ProxyEnable
+
+    if ($proxyEnable -eq 1) {
+        # 设置当前会话环境变量
+        $env:HTTP_PROXY = $PROXY_HTTP
+        $env:HTTPS_PROXY = $PROXY_HTTP
+        $env:ALL_PROXY = $PROXY_SOCKS
+
+        # 同时设置用户级环境变量（确保子进程如 Claude Code 能继承）
+        [Environment]::SetEnvironmentVariable("HTTP_PROXY", $PROXY_HTTP, "User")
+        [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $PROXY_HTTP, "User")
+        [Environment]::SetEnvironmentVariable("ALL_PROXY", $PROXY_SOCKS, "User")
+
+        Write-Host "[Proxy] $PROXY_HTTP" -ForegroundColor Green
+    } else {
+        # 清除会话和用户级环境变量
+        $env:HTTP_PROXY = $null
+        $env:HTTPS_PROXY = $null
+        $env:ALL_PROXY = $null
+        [Environment]::SetEnvironmentVariable("HTTP_PROXY", $null, "User")
+        [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $null, "User")
+        [Environment]::SetEnvironmentVariable("ALL_PROXY", $null, "User")
+
+        Write-Host "[Proxy] Direct connection" -ForegroundColor Yellow
+    }
+}
+```
+
+**重要变更**：现在启动时会同步设置用户级环境变量，确保 Claude Code 等子进程能正确继承代理状态。
+
+**新增命令**：
+
+| 命令 | 功能 |
+|------|------|
+| `Sync-ProxyToTools` 或 `proxy-sync` | 手动同步代理到 git/npm/scoop |
+| `Get-ProxyStatus` 或 `proxy-status` | 查看所有工具的代理配置状态 |
+
+**使用说明**：
+- Git、Python、curl 等自动读取环境变量，无需额外操作
+- npm 首次使用前运行 `proxy-sync` 同步配置
+- 切换代理状态后，如需更新 npm 配置，运行 `proxy-sync`
+
+#### Conda 延迟加载
+
+**问题**：每次启动都运行 `conda.exe "shell.powershell" "hook"`，耗时约 1.3 秒。
+
+**解决方案**：只在首次使用 conda 命令时才初始化。
+
+在 `~/Documents/PowerShell/profile.ps1` 中添加：
+
+```powershell
+#region conda initialize (lazy loading)
+$global:CondaInitialized = $false
+
+function Initialize-Conda {
+    if (-not $global:CondaInitialized) {
+        Write-Host "Initializing conda..." -ForegroundColor Cyan
+        If (Test-Path "C:\Users\<用户名>\miniconda3\Scripts\conda.exe") {
+            (& "C:\Users\<用户名>\miniconda3\Scripts\conda.exe" "shell.powershell" "hook") | Out-String | ?{$_} | Invoke-Expression
+        }
+        $global:CondaInitialized = $true
+        Write-Host "Conda initialized." -ForegroundColor Green
+    }
+}
+
+function conda {
+    Initialize-Conda
+    & "C:\Users\<用户名>\miniconda3\Scripts\conda.exe" $args
+}
+
+Set-Alias -Name init-conda -Value Initialize-Conda
+#endregion
+```
+
+**效果**：
+- 启动时不加载 conda（节省 1.3 秒）
+- 首次使用 `conda` 命令时自动初始化
+- 也可手动初始化：`init-conda`
+
+### 性能对比
+
+| 项目 | 优化前 | 优化后 | 提升 |
+|------|--------|--------|------|
+| 代理配置 | ~100ms + 外部命令 | ~50ms | 快速 |
+| Conda 初始化 | 1356ms | 12ms（延迟加载） | 113x |
+| **总启动时间** | **~1400ms** | **~450ms** | **3x** |
+
+### 脚本中的 UTF-8 编码
+
+如果在脚本中使用 `pwsh -NoProfile`，需要在脚本开头添加 UTF-8 编码设置：
+
+```powershell
+# UTF-8 编码设置（确保中文正常显示）
+$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001 >$null 2>&1
+```
+
+**原因**：`-NoProfile` 会跳过 Profile 中的 UTF-8 配置，导致中文乱码。
+
+---
+
+## 3. UTF-8 编码配置
 
 ### 问题
 
@@ -144,7 +327,7 @@ sys.stderr.reconfigure(encoding='utf-8')
 
 ---
 
-## 3. VS Code 配置
+## 4. VS Code 配置
 
 ### 配置 PowerShell 7 为默认终端（含 Emoji 支持）
 
@@ -195,7 +378,7 @@ Get-Command pwsh | Select-Object Source
 
 ---
 
-## 4. Git Bash 配置
+## 5. Git Bash 配置
 
 ### .minttyrc（MinTTY 终端配置）
 
@@ -235,7 +418,7 @@ export TERM=xterm-256color
 
 ---
 
-## 5. Scoop 与 aria2 配置
+## 6. Scoop 与 aria2 配置
 
 ### 什么是 aria2？
 
@@ -368,7 +551,7 @@ scoop install pandoc poppler qpdf tesseract
 
 ---
 
-## 6. SSL 证书验证配置（无管理员权限）
+## 7. SSL 证书验证配置（无管理员权限）
 
 ### 问题背景
 
@@ -468,7 +651,7 @@ Import-Certificate -FilePath "USERTrust_ECC_Root.crt" -CertStoreLocation Cert:\L
 
 ---
 
-## 7. Claude Code Skills 配置
+## 8. Claude Code Skills 配置
 
 ### Skills 目录结构
 
@@ -506,7 +689,7 @@ claude plugin install coderabbit@claude-plugins-official
 
 ---
 
-## 8. 已知问题
+## 9. 已知问题
 
 ### VS Code 终端 emoji 乱码
 
@@ -535,7 +718,7 @@ claude plugin install coderabbit@claude-plugins-official
 
 ---
 
-## 9. 快速安装
+## 10. 快速安装
 
 ### 前置条件
 
