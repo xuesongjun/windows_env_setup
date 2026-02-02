@@ -113,11 +113,23 @@ Windows 默认使用 GBK (代码页 936)，导致中文乱码。
 # ========== UTF-8 编码设置 ==========
 [Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
-$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUTF8 = "1"                   # Python 3.7+ 默认 UTF-8 模式
+$env:PYTHONIOENCODING = "utf-8"         # Python I/O 编码
 $env:LANG = "en_US.UTF-8"
 $env:LC_ALL = "en_US.UTF-8"
 chcp 65001 >$null 2>&1
+
+# 设置用户级环境变量（永久生效，对所有新进程有效）
+[Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "User")
+[Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "User")
 ```
+
+### Python UTF-8 模式说明
+
+| 环境变量 | 作用 | 生效范围 |
+|---------|------|---------|
+| `PYTHONUTF8=1` | Python 3.7+ UTF-8 模式，影响文件读写、`open()` 默认编码 | 用户级永久 |
+| `PYTHONIOENCODING=utf-8` | 标准输入/输出/错误流的编码 | 用户级永久 |
 
 ### Python 脚本编码
 
