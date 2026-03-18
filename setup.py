@@ -88,8 +88,8 @@ function Sync-ProxyToTools {{
         [Environment]::SetEnvironmentVariable("ALL_PROXY", $env:ALL_PROXY, "User")
 
         # 配置各工具
-        git config --global http.proxy $env:HTTP_PROXY 2>$null
-        git config --global https.proxy $env:HTTP_PROXY 2>$null
+        git config --global http.proxy $env:ALL_PROXY 2>$null
+        git config --global https.proxy $env:ALL_PROXY 2>$null
         scoop config proxy $PROXY_HOST_PORT 2>$null
         npm config set proxy $env:HTTP_PROXY 2>$null
         npm config set https-proxy $env:HTTP_PROXY 2>$null

@@ -378,6 +378,11 @@ sys.stderr.reconfigure(encoding='utf-8')
 Get-Command pwsh | Select-Object Source
 ```
 
+### 查询Proxy代理地址
+```powershell
+Get-ChildItem Env: | Where-Object { $_.Name -like "*proxy*" }
+```
+
 ---
 
 ## 5. Git Bash 配置
