@@ -199,7 +199,7 @@ def test_windows_proxy_setting():
                 try:
                     proxy_server, _ = winreg.QueryValueEx(key, "ProxyServer")
                     print_info(f"代理服务器: {proxy_server}")
-                except:
+                except Exception:
                     pass
 
             return True
@@ -220,7 +220,10 @@ def test_proxy_configuration():
     """
     print_test("代理配置状态")
 
-    results = []
+    # 使用命名变量避免列表索引越界风险
+    lock_ok = True
+    env_ok = True
+    proxy_running = False
 
     # 1. 检查锁定文件
     lock_file = Path.home() / ".proxy_lock"
@@ -228,10 +231,8 @@ def test_proxy_configuration():
 
     if is_locked:
         print_pass("🔒 代理已锁定（不跟随系统设置）")
-        results.append(True)
     else:
         print_info("🔓 自动检测模式（跟随系统设置）")
-        results.append(True)
 
     # 2. 检查用户级环境变量（重要：新终端会读取这个）
     try:
@@ -250,14 +251,12 @@ def test_proxy_configuration():
         if user_http_proxy:
             print_pass(f"用户级环境变量: {user_http_proxy}")
             print_info("   (新终端会自动使用此代理)")
-            results.append(True)
         else:
             print_info("用户级环境变量: 未设置")
             print_info("   (新终端不会使用代理)")
-            results.append(True)
     except Exception as e:
         print_warn(f"无法读取用户级环境变量: {e}")
-        results.append(False)
+        env_ok = False
 
     # 3. 检查代理软件运行状态
     try:
@@ -267,16 +266,19 @@ def test_proxy_configuration():
             text=True,
             timeout=5
         )
-        if "33210" in result.stdout and "LISTENING" in result.stdout:
+        # 精确匹配端口号，避免误匹配 PID 等其他数字
+        for line in result.stdout.splitlines():
+            if ":33210" in line and "LISTENING" in line:
+                proxy_running = True
+                break
+
+        if proxy_running:
             print_pass("代理软件正在运行（端口 33210 监听）")
-            results.append(True)
         else:
             print_warn("代理软件未运行（端口 33210 未监听）")
             print_info("   如需使用代理，请启动 Clash/V2Ray")
-            results.append(False)
     except Exception as e:
         print_warn(f"无法检测代理软件: {e}")
-        results.append(False)
 
     # 4. 检查 Windows 系统代理开关
     try:
@@ -289,11 +291,11 @@ def test_proxy_configuration():
                 print_info("Windows 系统代理开关: 关闭")
 
             # 给出配置建议
-            if is_locked and results[1] and results[2]:
+            if is_locked and env_ok and proxy_running:
                 print_info("")
                 print_pass("✅ 配置完美：代理已锁定且软件正在运行")
                 print_info("   Claude Code 等应用可以正常使用")
-            elif is_locked and not results[2]:
+            elif is_locked and not proxy_running:
                 print_info("")
                 print_warn("⚠️ 代理已锁定但软件未运行")
                 print_info("   请启动代理软件（Clash/V2Ray）")
@@ -303,7 +305,7 @@ def test_proxy_configuration():
     print_info("")
     print_info("💡 提示：运行 'pwsh check_proxy.ps1' 查看完整状态")
 
-    return all(results[:3])  # 前3项至少要通过
+    return lock_ok and env_ok and proxy_running
 
 
 def test_git_config():

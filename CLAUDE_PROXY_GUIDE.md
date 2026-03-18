@@ -53,13 +53,18 @@ Get-ProxyStatus  # 或 proxy-status
 
 ## 快速命令参考
 
-| 命令 | 功能 | 说明 |
+> 记不住命令？输入 `proxy` 即可查看完整列表。
+
+| 命令 | 别名 | 说明 |
 |------|------|------|
-| `Lock-Proxy` | 锁定代理 | 代理保持开启，不跟随系统设置 |
-| `Unlock-Proxy` | 解锁代理 | 恢复自动检测系统代理开关 |
-| `Set-AutoProxy` | 重新检测代理 | 根据系统代理开关更新环境变量 |
-| `Get-ProxyStatus` | 查看代理状态 | 显示所有代理配置 |
-| `Sync-ProxyToTools` | 同步到工具 | 将代理同步到 git/npm/scoop |
+| `Get-ProxyHelp` | `proxy` | 显示所有代理命令帮助 |
+| `Get-ProxyStatus` | `proxy-status` | 查看完整代理状态（会话/用户/Git/npm/Scoop） |
+| `Lock-Proxy` | — | 锁定代理（不跟随系统设置） |
+| `Unlock-Proxy` | — | 解锁代理（恢复自动检测） |
+| `Enable-Proxy` | — | 手动开启代理（当前会话） |
+| `Disable-Proxy` | — | 手动关闭代理（当前会话） |
+| `Sync-ProxyToTools` | `proxy-sync` | 同步到 git/npm/scoop |
+| `Set-AutoProxy` | — | 重新检测系统代理状态 |
 
 ## 使用建议
 

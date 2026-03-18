@@ -75,7 +75,9 @@ $listening = netstat -ano | Select-String "LISTENING" | Select-String $proxyPort
 
 if ($listening) {
     Write-Host "    ✓ 代理端口 $proxyPort 正在监听" -ForegroundColor Green
-    $processId = ($listening -split "\s+")[-1]
+    # 取第一行匹配，避免多行时解析错误
+    $firstMatch = $listening | Select-Object -First 1
+    $processId = ("$firstMatch" -split "\s+")[-1]
     try {
         $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($process) {

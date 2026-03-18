@@ -40,6 +40,13 @@ $env:LANG = "en_US.UTF-8"
 $env:LC_ALL = "en_US.UTF-8"
 chcp 65001 >$null 2>&1
 
+# 持久化 UTF-8 环境变量到用户级（确保 CMD/Git Bash/-NoProfile 等场景也生效）
+if (-not [Environment]::GetEnvironmentVariable("PYTHONUTF8", "User")) {{
+    [Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "User")
+    [Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "User")
+    [Environment]::SetEnvironmentVariable("LANG", "en_US.UTF-8", "User")
+}}
+
 # ========== 智能代理配置（优化版：启动时只设置环境变量）==========
 $PROXY_HTTP = "{proxy_http}"
 $PROXY_SOCKS = "{proxy_socks}"
@@ -144,46 +151,121 @@ function Disable-Proxy {{
 
 # 查看代理状态（增强版：显示工具配置状态）
 function Get-ProxyStatus {{
-    Write-Host "`n=== Proxy Status ===" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Proxy Status" -ForegroundColor Cyan
+    Write-Host "  ============================================================" -ForegroundColor DarkGray
 
-    # 当前会话
-    if ($env:HTTP_PROXY) {{
-        Write-Host "Session:  $env:HTTP_PROXY" -ForegroundColor Green
+    # 锁定状态
+    $lockFile = "$env:USERPROFILE\.proxy_lock"
+    if (Test-Path $lockFile) {{
+        Write-Host "  Mode:        " -NoNewline; Write-Host "Locked (ignore system settings)" -ForegroundColor Green
     }} else {{
-        Write-Host "Session:  Direct (no proxy)" -ForegroundColor Yellow
+        Write-Host "  Mode:        " -NoNewline; Write-Host "Auto-detect (follow system settings)" -ForegroundColor Yellow
+    }}
+
+    Write-Host "  ------------------------------------------------------------" -ForegroundColor DarkGray
+
+    # 当前会话环境变量（完整显示三个地址）
+    Write-Host "  Session:" -ForegroundColor White
+    if ($env:HTTP_PROXY) {{
+        Write-Host "    HTTP_PROXY   = $env:HTTP_PROXY" -ForegroundColor Green
+        Write-Host "    HTTPS_PROXY  = $env:HTTPS_PROXY" -ForegroundColor Green
+        Write-Host "    ALL_PROXY    = $env:ALL_PROXY" -ForegroundColor Green
+    }} else {{
+        Write-Host "    (not set)" -ForegroundColor Gray
     }}
 
     # 用户级环境变量
-    $userProxy = [Environment]::GetEnvironmentVariable("HTTP_PROXY", "User")
-    if ($userProxy) {{
-        Write-Host "User Env: $userProxy" -ForegroundColor Green
+    Write-Host "  User Env:" -ForegroundColor White
+    $uHttp  = [Environment]::GetEnvironmentVariable("HTTP_PROXY", "User")
+    $uHttps = [Environment]::GetEnvironmentVariable("HTTPS_PROXY", "User")
+    $uAll   = [Environment]::GetEnvironmentVariable("ALL_PROXY", "User")
+    if ($uHttp) {{
+        Write-Host "    HTTP_PROXY   = $uHttp" -ForegroundColor Green
+        Write-Host "    HTTPS_PROXY  = $uHttps" -ForegroundColor Green
+        Write-Host "    ALL_PROXY    = $uAll" -ForegroundColor Green
     }} else {{
-        Write-Host "User Env: Not set" -ForegroundColor Gray
+        Write-Host "    (not set)" -ForegroundColor Gray
     }}
 
+    Write-Host "  ------------------------------------------------------------" -ForegroundColor DarkGray
+
     # Git 配置
-    $gitProxy = git config --global --get http.proxy 2>$null
-    if ($gitProxy) {{
-        Write-Host "Git:      $gitProxy" -ForegroundColor Green
+    $gitHttp  = git config --global --get http.proxy 2>$null
+    $gitHttps = git config --global --get https.proxy 2>$null
+    Write-Host "  Git:" -ForegroundColor White
+    if ($gitHttp -or $gitHttps) {{
+        if ($gitHttp)  {{ Write-Host "    http.proxy   = $gitHttp" -ForegroundColor Green }}
+        if ($gitHttps) {{ Write-Host "    https.proxy  = $gitHttps" -ForegroundColor Green }}
     }} else {{
-        Write-Host "Git:      Not configured" -ForegroundColor Gray
+        Write-Host "    (not configured)" -ForegroundColor Gray
     }}
 
     # npm 配置
-    $npmProxy = npm config get proxy 2>$null
+    $npmProxy  = npm config get proxy 2>$null
+    $npmHttps  = npm config get https-proxy 2>$null
+    Write-Host "  npm:" -ForegroundColor White
     if ($npmProxy -and $npmProxy -ne "null") {{
-        Write-Host "npm:      $npmProxy" -ForegroundColor Green
+        Write-Host "    proxy        = $npmProxy" -ForegroundColor Green
+        if ($npmHttps -and $npmHttps -ne "null") {{
+            Write-Host "    https-proxy  = $npmHttps" -ForegroundColor Green
+        }}
     }} else {{
-        Write-Host "npm:      Not configured" -ForegroundColor Gray
+        Write-Host "    (not configured)" -ForegroundColor Gray
     }}
 
-    Write-Host "===================`n" -ForegroundColor Cyan
+    # Scoop 配置
+    $scoopProxy = scoop config proxy 2>$null
+    Write-Host "  Scoop:" -ForegroundColor White
+    if ($scoopProxy -and $scoopProxy -notmatch "not set|^$") {{
+        Write-Host "    proxy        = $scoopProxy" -ForegroundColor Green
+    }} else {{
+        Write-Host "    (not configured)" -ForegroundColor Gray
+    }}
+
+    Write-Host "  ============================================================" -ForegroundColor DarkGray
+    Write-Host ""
+}}
+
+# ========== 代理锁定功能（固定代理状态，不跟随系统设置）==========
+function Lock-Proxy {{
+    $env:HTTP_PROXY = $PROXY_HTTP
+    $env:HTTPS_PROXY = $PROXY_HTTP
+    $env:ALL_PROXY = $PROXY_SOCKS
+    [Environment]::SetEnvironmentVariable("HTTP_PROXY", $PROXY_HTTP, "User")
+    [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $PROXY_HTTP, "User")
+    [Environment]::SetEnvironmentVariable("ALL_PROXY", $PROXY_SOCKS, "User")
+    New-Item -Path "$env:USERPROFILE\.proxy_lock" -ItemType File -Force >$null
+    Write-Host "[Proxy] Locked: $PROXY_HTTP" -ForegroundColor Green
+    Write-Host "        proxy keeps ON regardless of system settings" -ForegroundColor Gray
+}}
+
+function Unlock-Proxy {{
+    Remove-Item -Path "$env:USERPROFILE\.proxy_lock" -Force -ErrorAction SilentlyContinue
+    Write-Host "[Proxy] Unlocked: back to auto-detect mode" -ForegroundColor Yellow
+    Set-AutoProxy
+}}
+
+# ========== 帮助命令（列出所有代理相关操作）==========
+function Get-ProxyHelp {{
+    Write-Host ""
+    Write-Host "  Proxy Commands" -ForegroundColor Cyan
+    Write-Host "  ============================================================" -ForegroundColor DarkGray
+    Write-Host "  proxy              " -NoNewline -ForegroundColor White; Write-Host "Show this help" -ForegroundColor Gray
+    Write-Host "  proxy-status       " -NoNewline -ForegroundColor White; Write-Host "Show current proxy status (session/user/git/npm)" -ForegroundColor Gray
+    Write-Host "  Enable-Proxy       " -NoNewline -ForegroundColor Green; Write-Host "Turn ON proxy for current session" -ForegroundColor Gray
+    Write-Host "  Disable-Proxy      " -NoNewline -ForegroundColor Yellow; Write-Host "Turn OFF proxy for current session" -ForegroundColor Gray
+    Write-Host "  Lock-Proxy         " -NoNewline -ForegroundColor Green; Write-Host "Lock proxy ON permanently (ignores system settings)" -ForegroundColor Gray
+    Write-Host "  Unlock-Proxy       " -NoNewline -ForegroundColor Yellow; Write-Host "Unlock, back to auto-detect mode" -ForegroundColor Gray
+    Write-Host "  proxy-sync         " -NoNewline -ForegroundColor White; Write-Host "Sync proxy to git/npm/scoop" -ForegroundColor Gray
+    Write-Host "  ============================================================" -ForegroundColor DarkGray
+    Write-Host ""
 }}
 
 # 快捷别名
+Set-Alias -Name proxy -Value Get-ProxyHelp
 Set-Alias -Name proxy-sync -Value Sync-ProxyToTools
 Set-Alias -Name proxy-status -Value Get-ProxyStatus
-# 注意：Lock-Proxy 和 Unlock-Proxy 直接作为函数使用，不设置别名避免冲突
 
 # 启动时自动检测（快速，约 50ms）
 Set-AutoProxy
@@ -228,7 +310,7 @@ def get_pwsh_path():
         result = subprocess.run(["where", "pwsh"], capture_output=True, text=True)
         if result.returncode == 0:
             return result.stdout.strip().split("\n")[0]
-    except:
+    except Exception:
         pass
 
     return None
@@ -252,20 +334,37 @@ def setup_powershell_profile():
         proxy_host_port=PROXY_HOST_PORT
     )
 
+    # 标记：用于识别我们管理的配置块
+    BLOCK_START = "# ========== 以下由 windows_env_setup 自动添加 =========="
+    BLOCK_START_ALT = "# ========== SSL 证书验证配置"  # 旧版直接写入时的开头
+
     # 检查是否已存在且包含配置
     if ps_profile_path.exists():
         existing_content = ps_profile_path.read_text(encoding='utf-8', errors='ignore')
 
-        # 检查是否已包含我们的配置
+        # 检查是否已包含我们的配置（需要替换更新）
         if "智能代理配置" in existing_content:
-            print_warn(f"Profile 已包含代理配置，跳过: {ps_profile_path}")
-            return True
+            # 找到旧配置块并替换为新内容
+            # 情况1：通过追加模式添加的（有 BLOCK_START 标记）
+            if BLOCK_START in existing_content:
+                user_part = existing_content.split(BLOCK_START)[0].rstrip()
+                new_content = user_part + "\n\n" + BLOCK_START + "\n" + profile_content
+            # 情况2：首次创建时直接写入的（整个文件都是我们的配置）
+            elif existing_content.lstrip().startswith(BLOCK_START_ALT):
+                new_content = profile_content
+            else:
+                # 无法确定边界，安全起见整体替换
+                new_content = profile_content
+
+            ps_profile_path.write_text(new_content, encoding='utf-8')
+            print_ok(f"已更新 Profile（替换旧配置）: {ps_profile_path}")
+            # 继续执行后面的 PS5 配置，不 return
 
         # 文件存在且有内容，追加配置
-        if existing_content.strip():
+        elif existing_content.strip():
             print_ok(f"检测到现有 profile，将追加配置")
             with open(ps_profile_path, 'a', encoding='utf-8') as f:
-                f.write("\n\n# ========== 以下由 windows_env_setup 自动添加 ==========\n")
+                f.write("\n\n" + BLOCK_START + "\n")
                 f.write(profile_content)
             print_ok(f"已追加配置到: {ps_profile_path}")
         else:
@@ -281,8 +380,18 @@ def setup_powershell_profile():
     ps5_profile_dir = Path.home() / "Documents" / "WindowsPowerShell"
     ps5_profile_path = ps5_profile_dir / "Microsoft.PowerShell_profile.ps1"
 
-    if not ps5_profile_path.exists():
-        ps5_profile_dir.mkdir(parents=True, exist_ok=True)
+    ps5_profile_dir.mkdir(parents=True, exist_ok=True)
+    if ps5_profile_path.exists():
+        ps5_content = ps5_profile_path.read_text(encoding='utf-8', errors='ignore')
+        if "智能代理配置" in ps5_content:
+            ps5_profile_path.write_text(profile_content, encoding='utf-8')
+            print_ok(f"已更新 Windows PowerShell 5.x profile: {ps5_profile_path}")
+        elif not ps5_content.strip():
+            ps5_profile_path.write_text(profile_content, encoding='utf-8')
+            print_ok(f"已创建 Windows PowerShell 5.x profile: {ps5_profile_path}")
+        else:
+            print_ok(f"Windows PowerShell 5.x profile 已存在，跳过")
+    else:
         ps5_profile_path.write_text(profile_content, encoding='utf-8')
         print_ok(f"已创建 Windows PowerShell 5.x profile: {ps5_profile_path}")
 
@@ -313,7 +422,7 @@ def setup_vscode_settings():
         "terminal.integrated.defaultProfile.windows": "PowerShell 7",
         "terminal.integrated.profiles.windows": {
             "PowerShell 7": {
-                "path": pwsh_path.replace("\\", "\\\\"),
+                "path": pwsh_path,
                 "icon": "terminal-powershell",
                 "args": ["-NoExit", "-NoLogo", "-Command", "chcp 65001 > $null"],
                 "env": {
@@ -350,8 +459,16 @@ def setup_vscode_settings():
             print_err(f"VS Code settings.json 格式错误: {e}")
             return False
 
-    # 合并设置
-    settings.update(new_settings)
+    # 深层合并设置（保留用户自定义的终端配置等）
+    def deep_merge(base, override):
+        for key, value in override.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                deep_merge(base[key], value)
+            else:
+                base[key] = value
+        return base
+
+    deep_merge(settings, new_settings)
 
     # 写入文件
     vscode_settings_path.write_text(
@@ -473,7 +590,7 @@ def setup_ssl_workarounds():
     try:
         result = subprocess.run(
             ["git", "config", "--global", "http.sslVerify", "false"],
-            capture_output=True, text=True, shell=True
+            capture_output=True, text=True
         )
         if result.returncode == 0:
             print_ok("已配置 Git http.sslVerify = false")
@@ -637,6 +754,52 @@ def check_system_utf8():
         return False
 
 
+def setup_utf8_env():
+    """
+    设置用户级 UTF-8 环境变量（持久化，不依赖 PowerShell Profile）
+
+    解决场景：
+    - CMD / Git Bash 中运行 pip install 等命令报 GBK 编码错误
+    - pwsh -NoProfile 场景
+    - 其他程序（如 IDE）启动的 Python 子进程
+    """
+    print_step("配置用户级 UTF-8 环境变量...")
+
+    # 需要持久化的环境变量
+    utf8_vars = {
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "LANG": "en_US.UTF-8",
+    }
+
+    try:
+        # 通过注册表直接写入用户级环境变量
+        reg_path = r"Environment"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0,
+                            winreg.KEY_READ | winreg.KEY_WRITE) as key:
+            for var_name, var_value in utf8_vars.items():
+                try:
+                    existing_value, _ = winreg.QueryValueEx(key, var_name)
+                    if existing_value == var_value:
+                        print_ok(f"{var_name}={var_value} (已存在)")
+                        continue
+                except FileNotFoundError:
+                    pass  # 变量不存在，需要创建
+
+                winreg.SetValueEx(key, var_name, 0, winreg.REG_SZ, var_value)
+                print_ok(f"{var_name}={var_value} (已设置)")
+
+                # 同时设置当前进程环境变量（立即生效）
+                os.environ[var_name] = var_value
+
+        print_ok("用户级环境变量已持久化（新终端自动生效）")
+        return True
+
+    except Exception as e:
+        print_err(f"设置用户级环境变量失败: {e}")
+        return False
+
+
 def setup_claude_skills():
     """配置 Claude Code Skills 目录"""
     print_step("配置 Claude Code Skills...")
@@ -703,6 +866,10 @@ $ARGUMENTS"""
         skill_dir.mkdir(exist_ok=True)
 
         skill_md = skill_dir / "SKILL.md"
+        # 避免覆盖用户手动修改的 skill 文件
+        if skill_md.exists():
+            print_ok(f"skill 已存在，跳过: {skill_name}")
+            continue
         content = f"""---
 name: {skill_data['name']}
 description: {skill_data['description']}
@@ -739,22 +906,25 @@ def main():
 
     results = []
 
-    # 1. 配置 PowerShell Profile
+    # 1. 配置用户级 UTF-8 环境变量（最先执行，解决 pip 等工具的编码问题）
+    results.append(("UTF-8 环境变量", setup_utf8_env()))
+
+    # 2. 配置 PowerShell Profile
     results.append(("PowerShell Profile", setup_powershell_profile()))
 
-    # 2. 配置 VS Code
+    # 3. 配置 VS Code
     results.append(("VS Code 设置", setup_vscode_settings()))
 
-    # 3. 配置 SSL 证书验证跳过
+    # 4. 配置 SSL 证书验证跳过
     results.append(("SSL 证书验证配置", setup_ssl_workarounds()))
 
-    # 4. 配置 Git Bash
+    # 5. 配置 Git Bash
     results.append(("Git Bash 配置", setup_git_bash()))
 
-    # 5. 配置 Claude Skills
-    results.append(("Claude Skills", setup_claude_skills()))
+    # 6. 配置 Claude Skills（已禁用：skills 现通过插件市场管理，无需脚本创建）
+    # results.append(("Claude Skills", setup_claude_skills()))
 
-    # 6. 配置 Scoop aria2
+    # 7. 配置 Scoop aria2
     results.append(("Scoop aria2 配置", setup_scoop_aria2()))
 
     # 总结

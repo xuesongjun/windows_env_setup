@@ -83,17 +83,20 @@ Set-AutoProxy
 
 ### 可用命令
 
-| 命令 | 功能 |
-|------|------|
-| `Set-AutoProxy` | 重新检测代理状态 |
-| `Lock-Proxy` | 🔒 锁定代理（不跟随系统设置，始终开启） |
-| `Unlock-Proxy` | 🔓 解锁代理（恢复自动检测） |
-| `Enable-Proxy` | 强制开启代理 |
-| `Disable-Proxy` | 强制关闭代理 |
-| `Get-ProxyStatus` 或 `proxy-status` | 查看当前状态 |
-| `Sync-ProxyToTools` 或 `proxy-sync` | 同步代理到 git/npm/scoop |
+输入 `proxy` 即可查看所有代理相关命令的快速帮助。
 
-**注意**：PowerShell 命令使用 **首字母大写** 格式（如 `Lock-Proxy`），别名使用 **全小写** 格式（如 `proxy-status`）。
+| 命令 | 别名 | 功能 |
+|------|------|------|
+| `Get-ProxyHelp` | `proxy` | 显示所有代理命令帮助 |
+| `Get-ProxyStatus` | `proxy-status` | 查看完整代理状态（会话/用户/Git/npm/Scoop） |
+| `Lock-Proxy` | — | 🔒 锁定代理（不跟随系统设置，始终开启） |
+| `Unlock-Proxy` | — | 🔓 解锁代理（恢复自动检测） |
+| `Enable-Proxy` | — | 手动开启代理（当前会话） |
+| `Disable-Proxy` | — | 手动关闭代理（当前会话） |
+| `Sync-ProxyToTools` | `proxy-sync` | 同步代理到 git/npm/scoop |
+| `Set-AutoProxy` | — | 重新检测系统代理状态 |
+
+**提示**：记不住命令？输入 `proxy` 即可查看完整列表。
 
 ### 代理检测原理
 
@@ -215,10 +218,11 @@ function Set-AutoProxy {
 
 **新增命令**：
 
-| 命令 | 功能 |
-|------|------|
-| `Sync-ProxyToTools` 或 `proxy-sync` | 手动同步代理到 git/npm/scoop |
-| `Get-ProxyStatus` 或 `proxy-status` | 查看所有工具的代理配置状态 |
+| 命令 | 别名 | 功能 |
+|------|------|------|
+| `Get-ProxyHelp` | `proxy` | 显示所有代理命令帮助 |
+| `Sync-ProxyToTools` | `proxy-sync` | 手动同步代理到 git/npm/scoop |
+| `Get-ProxyStatus` | `proxy-status` | 查看所有工具的代理配置状态 |
 
 **使用说明**：
 - Git、Python、curl 等自动读取环境变量，无需额外操作
@@ -312,10 +316,16 @@ chcp 65001 >$null 2>&1
 
 ### Python UTF-8 模式说明
 
+`setup.py` 会自动将以下环境变量持久化到用户级（通过注册表写入），确保所有场景都生效：
+
 | 环境变量 | 作用 | 生效范围 |
 |---------|------|---------|
-| `PYTHONUTF8=1` | Python 3.7+ UTF-8 模式，影响文件读写、`open()` 默认编码 | 用户级永久 |
-| `PYTHONIOENCODING=utf-8` | 标准输入/输出/错误流的编码 | 用户级永久 |
+| `PYTHONUTF8=1` | Python 3.7+ UTF-8 模式，影响文件读写、`open()` 默认编码 | 用户级永久（所有终端） |
+| `PYTHONIOENCODING=utf-8` | 标准输入/输出/错误流的编码 | 用户级永久（所有终端） |
+| `LANG=en_US.UTF-8` | 系统区域设置 | 用户级永久（所有终端） |
+
+**覆盖场景**：PowerShell、CMD、Git Bash、`pwsh -NoProfile`、IDE 子进程等。
+解决了 `pip install -r requirements.txt` 在 GBK 环境下报 `UnicodeDecodeError` 的问题。
 
 ### Python 脚本编码
 
@@ -740,12 +750,15 @@ python setup.py
 ```
 
 该脚本会自动配置：
-- PowerShell Profile（代理检测、UTF-8 编码、SSL 环境变量）
+- 用户级 UTF-8 环境变量（PYTHONUTF8、PYTHONIOENCODING、LANG，解决 pip 等工具编码问题）
+- PowerShell Profile（代理检测/锁定、`proxy` 帮助命令、UTF-8 编码、SSL 环境变量）
 - VS Code 设置（PowerShell 7 终端、Emoji 支持）
 - Git Bash 配置（.minttyrc、.bash_profile UTF-8）
 - SSL 证书验证跳过（curl/Git/npm，无管理员权限方案）
 - Claude Code Skills 示例
 - Scoop aria2 下载器
+
+**注意**：重复运行 `setup.py` 会自动更新已有配置（替换旧版本），不会跳过。
 
 ### 测试脚本
 

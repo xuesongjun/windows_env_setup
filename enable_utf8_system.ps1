@@ -50,9 +50,10 @@ Write-Host ""
 Write-Host "正在配置..." -ForegroundColor Cyan
 
 try {
-    # 启用 Beta UTF-8 支持
+    # 启用 Beta UTF-8 支持（完整设置 ACP、OEMCP、MACCP）
     Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage" -Name "ACP" -Value "65001"
     Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage" -Name "OEMCP" -Value "65001"
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage" -Name "MACCP" -Value "65001"
 
     Write-Host "✓ 配置完成！" -ForegroundColor Green
     Write-Host ""
@@ -64,6 +65,7 @@ try {
     Write-Host "如需还原，以管理员身份运行：" -ForegroundColor Gray
     Write-Host "  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage' -Name 'ACP' -Value '936'"
     Write-Host "  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage' -Name 'OEMCP' -Value '936'"
+    Write-Host "  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage' -Name 'MACCP' -Value '10008'"
     Write-Host ""
 
     $restart = Read-Host "是否立即重启计算机？(Y/N)"

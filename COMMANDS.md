@@ -43,17 +43,20 @@ function Lock-Proxy { ... }
 
 ## 📖 完整命令列表
 
+> **提示**：在 PowerShell 中输入 `proxy` 即可查看所有代理命令的快速帮助。
+
 ### 代理管理命令
 
 | 函数名 | 别名 | 说明 |
 |--------|------|------|
+| `Get-ProxyHelp` | `proxy` | 显示所有代理命令帮助 |
+| `Get-ProxyStatus` | `proxy-status` | 查看完整代理状态（会话/用户/Git/npm/Scoop） |
 | `Lock-Proxy` | 无 | 锁定代理（不跟随系统设置） |
 | `Unlock-Proxy` | 无 | 解锁代理（恢复自动检测） |
-| `Get-ProxyStatus` | `proxy-status` | 查看代理状态 |
+| `Enable-Proxy` | 无 | 手动开启代理（当前会话） |
+| `Disable-Proxy` | 无 | 手动关闭代理（当前会话） |
 | `Sync-ProxyToTools` | `proxy-sync` | 同步代理到 git/npm/scoop |
 | `Set-AutoProxy` | 无 | 重新检测代理状态 |
-| `Enable-Proxy` | 无 | 手动开启代理 |
-| `Disable-Proxy` | 无 | 手动关闭代理 |
 
 ### 使用示例
 

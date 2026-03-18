@@ -18,24 +18,18 @@ python test_setup.py
 
 ### 代理管理
 
-| 命令 | 说明 | 使用场景 |
-|------|------|---------|
-| `Lock-Proxy` | 🔒 锁定代理 | **推荐用于 Claude Code**<br>代理始终开启，不跟随系统设置 |
-| `Unlock-Proxy` | 🔓 解锁代理 | 恢复自动检测模式 |
-| `Get-ProxyStatus` | 查看代理状态 | 显示所有代理配置详情 |
-| `proxy-status` | 查看代理状态（别名） | 同上 |
-| `Sync-ProxyToTools` | 同步代理到工具 | 同步到 git/npm/scoop |
-| `proxy-sync` | 同步代理（别名） | 同上 |
+> 记不住命令？输入 `proxy` 即可查看完整列表。
 
-**注意**：PowerShell 函数使用 **首字母大写** 格式（如 `Lock-Proxy`），别名使用 **全小写-连字符** 格式（如 `proxy-status`）。
-
-### 手动控制
-
-| 命令 | 说明 |
-|------|------|
-| `Set-AutoProxy` | 重新检测代理状态 |
-| `Enable-Proxy` | 强制开启代理（当前会话） |
-| `Disable-Proxy` | 强制关闭代理（当前会话） |
+| 命令 | 别名 | 说明 |
+|------|------|------|
+| `Get-ProxyHelp` | `proxy` | 显示所有代理命令帮助 |
+| `Get-ProxyStatus` | `proxy-status` | 查看完整代理状态（会话/用户/Git/npm/Scoop） |
+| `Lock-Proxy` | — | 🔒 锁定代理（推荐用于 Claude Code） |
+| `Unlock-Proxy` | — | 🔓 解锁代理（恢复自动检测） |
+| `Enable-Proxy` | — | 手动开启代理（当前会话） |
+| `Disable-Proxy` | — | 手动关闭代理（当前会话） |
+| `Sync-ProxyToTools` | `proxy-sync` | 同步代理到 git/npm/scoop |
+| `Set-AutoProxy` | — | 重新检测代理状态 |
 
 ---
 
