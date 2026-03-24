@@ -246,6 +246,11 @@ function Unlock-Proxy {{
     Set-AutoProxy
 }}
 
+function Update-Env {
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    Write-Host "成功从系统注册表同步了最新的 Path 环境变量！" -ForegroundColor Cyan
+}
+
 # ========== 帮助命令（列出所有代理相关操作）==========
 function Get-ProxyHelp {{
     Write-Host ""
@@ -266,7 +271,7 @@ function Get-ProxyHelp {{
 Set-Alias -Name proxy -Value Get-ProxyHelp
 Set-Alias -Name proxy-sync -Value Sync-ProxyToTools
 Set-Alias -Name proxy-status -Value Get-ProxyStatus
-
+Set-Alias -Name us -Value Update-Env
 # 启动时自动检测（快速，约 50ms）
 Set-AutoProxy
 '''
