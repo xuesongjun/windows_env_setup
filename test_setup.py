@@ -258,27 +258,40 @@ def test_proxy_configuration():
         print_warn(f"无法读取用户级环境变量: {e}")
         env_ok = False
 
-    # 3. 检查代理软件运行状态
+    # 3. 检查代理软件运行状态（从注册表动态读取端口，适配任意 VPN 客户端）
+    proxy_port = None
     try:
-        result = subprocess.run(
-            ["netstat", "-ano"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        # 精确匹配端口号，避免误匹配 PID 等其他数字
-        for line in result.stdout.splitlines():
-            if ":33210" in line and "LISTENING" in line:
-                proxy_running = True
-                break
+        reg_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
+            proxy_server, _ = winreg.QueryValueEx(key, "ProxyServer")
+            # ProxyServer 格式为 "127.0.0.1:7897"
+            if proxy_server and ":" in proxy_server:
+                proxy_port = proxy_server.split(":")[-1]
+    except Exception:
+        pass
 
-        if proxy_running:
-            print_pass("代理软件正在运行（端口 33210 监听）")
-        else:
-            print_warn("代理软件未运行（端口 33210 未监听）")
-            print_info("   如需使用代理，请启动 Clash/V2Ray")
-    except Exception as e:
-        print_warn(f"无法检测代理软件: {e}")
+    if proxy_port:
+        try:
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            for line in result.stdout.splitlines():
+                if f":{proxy_port}" in line and "LISTENING" in line:
+                    proxy_running = True
+                    break
+
+            if proxy_running:
+                print_pass(f"代理软件正在运行（端口 {proxy_port} 监听）")
+            else:
+                print_warn(f"代理软件未运行（端口 {proxy_port} 未监听）")
+                print_info("   如需使用代理，请启动代理客户端")
+        except Exception as e:
+            print_warn(f"无法检测代理软件: {e}")
+    else:
+        print_warn("无法从注册表读取代理端口，跳过运行状态检测")
 
     # 4. 检查 Windows 系统代理开关
     try:
@@ -331,29 +344,6 @@ def test_git_config():
     except Exception as e:
         print_fail(f"测试失败: {e}")
         return False
-
-
-def test_claude_skills():
-    """测试 Claude Skills 配置"""
-    print_test("Claude Skills 配置")
-
-    skills_dir = Path.home() / ".claude" / "skills"
-
-    if not skills_dir.exists():
-        print_warn(f"Skills 目录不存在: {skills_dir}")
-        return True
-
-    skills = list(skills_dir.iterdir())
-    if skills:
-        print_pass(f"Skills 目录存在，包含 {len(skills)} 个 skill")
-        for skill in skills[:5]:  # 只显示前 5 个
-            skill_md = skill / "SKILL.md"
-            if skill_md.exists():
-                print_info(f"  - {skill.name}")
-        return True
-    else:
-        print_warn("Skills 目录为空")
-        return True
 
 
 def test_console_codepage():
@@ -646,7 +636,6 @@ def main():
         ("Git 配置", test_git_config),
         ("Scoop aria2", test_scoop_aria2),
         ("SSL 证书配置", test_ssl_mitm),
-        ("Claude Skills", test_claude_skills),
         ("控制台代码页", test_console_codepage),
         ("系统 UTF-8 全局支持", test_system_utf8_setting),
         ("PowerShell -NoProfile 中文输出", test_powershell_noprofile_encoding),

@@ -68,27 +68,34 @@ if ($env:HTTP_PROXY) {
     Write-Host "    ✗ 未设置" -ForegroundColor Yellow
 }
 
-# 5. 代理端口监听状态
+# 5. 代理端口监听状态（从注册表动态读取端口，适配任意 VPN 客户端）
 Write-Host "`n[5] 代理软件运行状态" -ForegroundColor Yellow
-$proxyPort = "33210"
-$listening = netstat -ano | Select-String "LISTENING" | Select-String $proxyPort
+$regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+$proxyServer = (Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue).ProxyServer
+$proxyPort = if ($proxyServer -and $proxyServer -match ":(\d+)$") { $Matches[1] } else { $null }
 
-if ($listening) {
-    Write-Host "    ✓ 代理端口 $proxyPort 正在监听" -ForegroundColor Green
-    # 取第一行匹配，避免多行时解析错误
-    $firstMatch = $listening | Select-Object -First 1
-    $processId = ("$firstMatch" -split "\s+")[-1]
-    try {
-        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
-        if ($process) {
-            Write-Host "       进程: $($process.Name) (PID: $processId)" -ForegroundColor Gray
-        }
-    } catch {
-        Write-Host "       进程 ID: $processId" -ForegroundColor Gray
-    }
+if (-not $proxyPort) {
+    Write-Host "    ⚠ 无法从注册表读取代理端口，跳过检测" -ForegroundColor Yellow
 } else {
-    Write-Host "    ✗ 代理端口 $proxyPort 未监听" -ForegroundColor Red
-    Write-Host "       ⚠ 代理软件可能未运行" -ForegroundColor Yellow
+    $listening = netstat -ano | Select-String "LISTENING" | Select-String ":$proxyPort"
+
+    if ($listening) {
+        Write-Host "    ✓ 代理端口 $proxyPort 正在监听" -ForegroundColor Green
+        # 取第一行匹配，避免多行时解析错误
+        $firstMatch = $listening | Select-Object -First 1
+        $processId = ("$firstMatch" -split "\s+")[-1]
+        try {
+            $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+            if ($process) {
+                Write-Host "       进程: $($process.Name) (PID: $processId)" -ForegroundColor Gray
+            }
+        } catch {
+            Write-Host "       进程 ID: $processId" -ForegroundColor Gray
+        }
+    } else {
+        Write-Host "    ✗ 代理端口 $proxyPort 未监听" -ForegroundColor Red
+        Write-Host "       ⚠ 代理软件可能未运行" -ForegroundColor Yellow
+    }
 }
 
 # 6. Git 配置

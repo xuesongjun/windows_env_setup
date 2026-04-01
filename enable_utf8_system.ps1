@@ -62,9 +62,10 @@ try {
     Write-Host "  2. 重启后，所有程序将默认使用 UTF-8"
     Write-Host "  3. Claude 的输出将不再乱码"
     Write-Host ""
-    Write-Host "如需还原，以管理员身份运行：" -ForegroundColor Gray
+    Write-Host "如需还原（简体中文 Windows 默认值），以管理员身份运行：" -ForegroundColor Gray
     Write-Host "  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage' -Name 'ACP' -Value '936'"
     Write-Host "  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage' -Name 'OEMCP' -Value '936'"
+    Write-Host "  # MACCP 还原为 10008（简体中文 Mac 代码页原始默认值，与 ACP/OEMCP 不同）"
     Write-Host "  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage' -Name 'MACCP' -Value '10008'"
     Write-Host ""
 

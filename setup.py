@@ -47,38 +47,58 @@ if (-not [Environment]::GetEnvironmentVariable("PYTHONUTF8", "User")) {{
     [Environment]::SetEnvironmentVariable("LANG", "en_US.UTF-8", "User")
 }}
 
-# ========== 智能代理配置（优化版：启动时只设置环境变量）==========
-$PROXY_HTTP = "{proxy_http}"
-$PROXY_SOCKS = "{proxy_socks}"
-$PROXY_HOST_PORT = "{proxy_host_port}"
+# ========== 智能代理配置（动态读取注册表，自适应 VPN 客户端端口）==========
+# 兜底默认值（注册表读取失败时使用）
+$PROXY_FALLBACK_HTTP      = "{proxy_http}"
+$PROXY_FALLBACK_SOCKS     = "{proxy_socks}"
+$PROXY_FALLBACK_HOST_PORT = "{proxy_host_port}"
 
-# 启动时自动检测代理（快速版：只设置当前会话环境变量）
+# 从 Windows 系统代理注册表读取当前代理地址（不管 ProxyEnable 状态）
+# 返回格式如 "127.0.0.1:7897"，读不到则返回 $null
+function Get-SystemProxyAddress {{
+    $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+    $props = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+    if ($props.ProxyServer) {{ return $props.ProxyServer }}
+    return $null
+}}
+
+# 启动时自动检测代理：从注册表读取端口，只在值变化时才写用户级环境变量
 function Set-AutoProxy {{
-    $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
-    $proxyEnable = (Get-ItemProperty -Path $regPath -Name ProxyEnable -ErrorAction SilentlyContinue).ProxyEnable
+    $regPath     = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+    $props       = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+    $proxyEnable = $props.ProxyEnable
+    $proxyServer = $props.ProxyServer   # 如 "127.0.0.1:7897"
 
-    if ($proxyEnable -eq 1) {{
-        # 设置当前会话环境变量（快速，约 50ms）
-        $env:HTTP_PROXY = $PROXY_HTTP
-        $env:HTTPS_PROXY = $PROXY_HTTP
-        $env:ALL_PROXY = $PROXY_SOCKS
+    if ($proxyEnable -eq 1 -and $proxyServer) {{
+        $httpProxy  = "http://$proxyServer"
+        $socksProxy = "socks5://$proxyServer"   # 现代客户端（Clash 等）使用混合端口
 
-        # 同时设置用户级环境变量（确保子进程如 Claude Code 能继承）
-        [Environment]::SetEnvironmentVariable("HTTP_PROXY", $PROXY_HTTP, "User")
-        [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $PROXY_HTTP, "User")
-        [Environment]::SetEnvironmentVariable("ALL_PROXY", $PROXY_SOCKS, "User")
+        # 设置当前会话环境变量
+        $env:HTTP_PROXY  = $httpProxy
+        $env:HTTPS_PROXY = $httpProxy
+        $env:ALL_PROXY   = $socksProxy
 
-        Write-Host "[Proxy] $PROXY_HTTP (use 'Sync-ProxyToTools' to sync to git/npm/scoop)" -ForegroundColor Green
+        # 只在值变化时写注册表，避免每次启动都写（节省约 150-300ms）
+        $currentHttp = [Environment]::GetEnvironmentVariable("HTTP_PROXY", "User")
+        if ($currentHttp -ne $httpProxy) {{
+            [Environment]::SetEnvironmentVariable("HTTP_PROXY",  $httpProxy,  "User")
+            [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $httpProxy,  "User")
+            [Environment]::SetEnvironmentVariable("ALL_PROXY",   $socksProxy, "User")
+        }}
+
+        Write-Host "[Proxy] $httpProxy (use 'Sync-ProxyToTools' to sync to git/npm/scoop)" -ForegroundColor Green
     }} else {{
-        # 清除当前会话环境变量
-        $env:HTTP_PROXY = $null
+        $env:HTTP_PROXY  = $null
         $env:HTTPS_PROXY = $null
-        $env:ALL_PROXY = $null
+        $env:ALL_PROXY   = $null
 
-        # 同时清除用户级环境变量（确保子进程不会错误使用代理）
-        [Environment]::SetEnvironmentVariable("HTTP_PROXY", $null, "User")
-        [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $null, "User")
-        [Environment]::SetEnvironmentVariable("ALL_PROXY", $null, "User")
+        # 只在已设置时才清除，避免不必要的注册表写入
+        $currentHttp = [Environment]::GetEnvironmentVariable("HTTP_PROXY", "User")
+        if ($currentHttp) {{
+            [Environment]::SetEnvironmentVariable("HTTP_PROXY",  $null, "User")
+            [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $null, "User")
+            [Environment]::SetEnvironmentVariable("ALL_PROXY",   $null, "User")
+        }}
 
         Write-Host "[Proxy] Direct connection" -ForegroundColor Yellow
     }}
@@ -97,7 +117,7 @@ function Sync-ProxyToTools {{
         # 配置各工具
         git config --global http.proxy $env:ALL_PROXY 2>$null
         git config --global https.proxy $env:ALL_PROXY 2>$null
-        scoop config proxy $PROXY_HOST_PORT 2>$null
+        scoop config proxy ($env:HTTP_PROXY -replace '^https?://', '') 2>$null
         npm config set proxy $env:HTTP_PROXY 2>$null
         npm config set https-proxy $env:HTTP_PROXY 2>$null
 
@@ -121,12 +141,17 @@ function Sync-ProxyToTools {{
     }}
 }}
 
-# 手动开启代理（同时同步到工具）
+# 手动开启代理（优先从注册表读取当前端口，兜底用默认值）
 function Enable-Proxy {{
-    $env:HTTP_PROXY = $PROXY_HTTP
-    $env:HTTPS_PROXY = $PROXY_HTTP
-    $env:ALL_PROXY = $PROXY_SOCKS
-    Write-Host "[Proxy] Enabled: $PROXY_HTTP (session)" -ForegroundColor Green
+    $proxyServer = Get-SystemProxyAddress
+    if (-not $proxyServer) {{ $proxyServer = $PROXY_FALLBACK_HOST_PORT }}
+    $httpProxy  = "http://$proxyServer"
+    $socksProxy = "socks5://$proxyServer"
+
+    $env:HTTP_PROXY  = $httpProxy
+    $env:HTTPS_PROXY = $httpProxy
+    $env:ALL_PROXY   = $socksProxy
+    Write-Host "[Proxy] Enabled: $httpProxy (session)" -ForegroundColor Green
 
     # 询问是否同步到工具
     $response = Read-Host "Sync to git/npm/scoop? (Y/n)"
@@ -229,14 +254,19 @@ function Get-ProxyStatus {{
 
 # ========== 代理锁定功能（固定代理状态，不跟随系统设置）==========
 function Lock-Proxy {{
-    $env:HTTP_PROXY = $PROXY_HTTP
-    $env:HTTPS_PROXY = $PROXY_HTTP
-    $env:ALL_PROXY = $PROXY_SOCKS
-    [Environment]::SetEnvironmentVariable("HTTP_PROXY", $PROXY_HTTP, "User")
-    [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $PROXY_HTTP, "User")
-    [Environment]::SetEnvironmentVariable("ALL_PROXY", $PROXY_SOCKS, "User")
+    $proxyServer = Get-SystemProxyAddress
+    if (-not $proxyServer) {{ $proxyServer = $PROXY_FALLBACK_HOST_PORT }}
+    $httpProxy  = "http://$proxyServer"
+    $socksProxy = "socks5://$proxyServer"
+
+    $env:HTTP_PROXY  = $httpProxy
+    $env:HTTPS_PROXY = $httpProxy
+    $env:ALL_PROXY   = $socksProxy
+    [Environment]::SetEnvironmentVariable("HTTP_PROXY",  $httpProxy,  "User")
+    [Environment]::SetEnvironmentVariable("HTTPS_PROXY", $httpProxy,  "User")
+    [Environment]::SetEnvironmentVariable("ALL_PROXY",   $socksProxy, "User")
     New-Item -Path "$env:USERPROFILE\.proxy_lock" -ItemType File -Force >$null
-    Write-Host "[Proxy] Locked: $PROXY_HTTP" -ForegroundColor Green
+    Write-Host "[Proxy] Locked: $httpProxy" -ForegroundColor Green
     Write-Host "        proxy keeps ON regardless of system settings" -ForegroundColor Gray
 }}
 
@@ -246,10 +276,10 @@ function Unlock-Proxy {{
     Set-AutoProxy
 }}
 
-function Update-Env {
+function Update-Env {{
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     Write-Host "成功从系统注册表同步了最新的 Path 环境变量！" -ForegroundColor Cyan
-}
+}}
 
 # ========== 帮助命令（列出所有代理相关操作）==========
 function Get-ProxyHelp {{
@@ -805,89 +835,6 @@ def setup_utf8_env():
         return False
 
 
-def setup_claude_skills():
-    """配置 Claude Code Skills 目录"""
-    print_step("配置 Claude Code Skills...")
-
-    skills_dir = Path.home() / ".claude" / "skills"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-
-    # 示例 skills
-    example_skills = {
-        "code-review": {
-            "name": "code-review",
-            "description": "对代码文件进行质量、安全性和性能审查",
-            "content": """# 代码审查
-
-请对指定的代码文件进行审查，检查以下方面：
-
-## 审查项目
-
-1. **代码质量** - 命名、函数长度、重复代码
-2. **潜在 Bug** - 空指针、边界条件、错误处理
-3. **安全性** - 输入验证、注入风险
-4. **性能** - 明显的性能问题
-
-请提供具体的改进建议和代码示例。
-
-目标：$ARGUMENTS"""
-        },
-        "explain": {
-            "name": "explain",
-            "description": "详细解释指定的代码，包括功能、流程和使用方法",
-            "content": """# 代码解释
-
-请详细解释指定的代码，包括：
-
-1. **整体功能**：代码的主要目的
-2. **工作流程**：执行流程
-3. **关键部分**：重点解释复杂代码段
-4. **依赖关系**：外部依赖或内部模块
-5. **使用示例**：如何使用
-
-请用通俗易懂的语言解释。
-
-目标：$ARGUMENTS"""
-        },
-        "git-summary": {
-            "name": "git-summary",
-            "description": "显示当前 Git 仓库的状态摘要",
-            "content": """# Git 仓库状态摘要
-
-请执行以下操作：
-
-1. 显示当前分支名称
-2. 显示最近 5 条提交记录
-3. 显示未提交的更改
-4. 显示未跟踪的文件
-5. 显示与远程的同步状态
-
-$ARGUMENTS"""
-        }
-    }
-
-    for skill_name, skill_data in example_skills.items():
-        skill_dir = skills_dir / skill_name
-        skill_dir.mkdir(exist_ok=True)
-
-        skill_md = skill_dir / "SKILL.md"
-        # 避免覆盖用户手动修改的 skill 文件
-        if skill_md.exists():
-            print_ok(f"skill 已存在，跳过: {skill_name}")
-            continue
-        content = f"""---
-name: {skill_data['name']}
-description: {skill_data['description']}
----
-
-{skill_data['content']}
-"""
-        skill_md.write_text(content, encoding='utf-8')
-        print_ok(f"已创建 skill: {skill_name}")
-
-    return True
-
-
 def main():
     print("=" * 60)
     print("Windows 开发环境自动配置脚本")
@@ -926,10 +873,7 @@ def main():
     # 5. 配置 Git Bash
     results.append(("Git Bash 配置", setup_git_bash()))
 
-    # 6. 配置 Claude Skills（已禁用：skills 现通过插件市场管理，无需脚本创建）
-    # results.append(("Claude Skills", setup_claude_skills()))
-
-    # 7. 配置 Scoop aria2
+    # 6. 配置 Scoop aria2
     results.append(("Scoop aria2 配置", setup_scoop_aria2()))
 
     # 总结
