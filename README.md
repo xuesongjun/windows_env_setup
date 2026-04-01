@@ -29,6 +29,15 @@ python setup.py
 python test_setup.py
 ```
 
+### 项目脚本说明
+
+| 脚本 | 用途 | 运行方式 |
+|------|------|---------|
+| `setup.py` | 主配置脚本，一键配置 PowerShell Profile、VS Code、UTF-8、SSL、Git Bash、Scoop aria2 | `python setup.py` |
+| `test_setup.py` | 验证脚本，检查所有配置是否正确生效，输出逐项测试结果 | `python test_setup.py` |
+| `check_proxy.ps1` | 代理状态诊断工具，排查代理问题时使用，显示注册表/环境变量/端口/Git/npm 完整状态 | `pwsh check_proxy.ps1` |
+| `enable_utf8_system.ps1` | 启用 Windows 系统级 UTF-8 支持（需管理员权限，重启后生效），解决 Claude Code 执行脚本时的中文乱码 | 管理员身份运行 `.\enable_utf8_system.ps1` |
+
 ### 配置文件位置
 
 | 文件 | 路径 | 说明 |
