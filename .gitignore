@@ -15,3 +15,7 @@ build/
 # OS
 Thumbs.db
 Desktop.ini
+
+# 临时工作文件
+plan.md
+research.md
