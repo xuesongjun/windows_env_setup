@@ -835,6 +835,148 @@ def setup_utf8_env():
         return False
 
 
+def _configure_windows_terminal_font(font_face):
+    """更新 Windows Terminal 所有配置的默认字体"""
+    # 稳定版和预览版路径
+    wt_paths = [
+        Path(os.environ.get("LOCALAPPDATA", ""))
+        / "Packages" / "Microsoft.WindowsTerminal_8wekyb3d8bbwe"
+        / "LocalState" / "settings.json",
+        Path(os.environ.get("LOCALAPPDATA", ""))
+        / "Packages" / "Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe"
+        / "LocalState" / "settings.json",
+    ]
+
+    configured = False
+    for settings_path in wt_paths:
+        if not settings_path.exists():
+            continue
+        try:
+            content = settings_path.read_text(encoding='utf-8')
+            settings = json.loads(content)
+
+            # 在 profiles.defaults 里设置字体（对所有配置文件生效）
+            profiles = settings.setdefault("profiles", {})
+            defaults = profiles.setdefault("defaults", {})
+            current_face = defaults.get("font", {}).get("face", "")
+            if current_face == font_face:
+                print_ok(f"Windows Terminal 字体已是 {font_face}，无需修改")
+            else:
+                defaults.setdefault("font", {})["face"] = font_face
+                settings_path.write_text(
+                    json.dumps(settings, indent=4, ensure_ascii=False),
+                    encoding='utf-8'
+                )
+                print_ok(f"已更新 Windows Terminal 默认字体 → {font_face}")
+
+            configured = True
+        except Exception as e:
+            print_warn(f"更新 Windows Terminal 设置失败: {e}")
+
+    if not configured:
+        print_warn("未找到 Windows Terminal settings.json")
+        print_warn(f"请手动设置：设置 > 配置文件 > 默认值 > 外观 > 字体 → {font_face}")
+
+
+def setup_nerd_font():
+    """
+    下载并安装 JetBrainsMono Nerd Font（用户级，无需管理员权限），
+    并自动更新 Windows Terminal 默认字体配置。
+    """
+    import urllib.request
+    import zipfile
+    import tempfile
+
+    FONT_FACE = "JetBrainsMono Nerd Font Mono"
+    FONT_ZIP_URL = (
+        "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
+    )
+
+    print_step("安装 Nerd Font（JetBrainsMono Nerd Font）...")
+
+    # 用户字体目录（无需管理员权限，Windows 10 1809+ 支持）
+    font_dir = (
+        Path(os.environ.get("LOCALAPPDATA", ""))
+        / "Microsoft" / "Windows" / "Fonts"
+    )
+    font_dir.mkdir(parents=True, exist_ok=True)
+
+    # 检查是否已安装
+    existing = list(font_dir.glob("JetBrainsMono*.ttf"))
+    if existing:
+        print_ok(f"JetBrainsMono Nerd Font 已安装（{len(existing)} 个文件），跳过下载")
+        _configure_windows_terminal_font(FONT_FACE)
+        return True
+
+    # 下载
+    print_ok(f"正在下载 JetBrainsMono.zip（约 20-30 MB）...")
+    tmp_zip = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as f:
+            tmp_zip = f.name
+
+        # 支持代理环境变量（HTTP_PROXY / HTTPS_PROXY）
+        proxy_handler = urllib.request.ProxyHandler()
+        opener = urllib.request.build_opener(proxy_handler)
+        with opener.open(FONT_ZIP_URL, timeout=120) as resp, open(tmp_zip, "wb") as out:
+            total = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            chunk = 65536
+            while True:
+                data = resp.read(chunk)
+                if not data:
+                    break
+                out.write(data)
+                downloaded += len(data)
+                if total:
+                    pct = downloaded * 100 // total
+                    print(f"\r    进度: {pct:3d}%  ({downloaded//1024//1024} MB)", end="", flush=True)
+        print()
+        print_ok("下载完成")
+
+        # 解压并安装（只安装 TTF，跳过 Windows Compatible 后缀以减少数量）
+        installed = 0
+        reg_entries = {}
+        with zipfile.ZipFile(tmp_zip, "r") as zf:
+            for name in zf.namelist():
+                if not name.lower().endswith(".ttf"):
+                    continue
+                basename = Path(name).name
+                if not basename:
+                    continue
+                dest = font_dir / basename
+                if dest.exists():
+                    continue
+                with zf.open(name) as src, open(dest, "wb") as dst:
+                    dst.write(src.read())
+                # 注册表值名：去掉 .ttf + 加 "(TrueType)"
+                reg_entries[basename[:-4] + " (TrueType)"] = str(dest)
+                installed += 1
+
+        # 注册到用户字体注册表（让 Windows 应用能识别）
+        reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_WRITE
+        ) as key:
+            for reg_name, font_path in reg_entries.items():
+                winreg.SetValueEx(key, reg_name, 0, winreg.REG_SZ, font_path)
+
+        print_ok(f"已安装 {installed} 个字体文件 → {font_dir}")
+
+    except Exception as e:
+        print_err(f"Nerd Font 安装失败：{e}")
+        return False
+    finally:
+        if tmp_zip:
+            try:
+                os.unlink(tmp_zip)
+            except OSError:
+                pass
+
+    _configure_windows_terminal_font(FONT_FACE)
+    return True
+
+
 def main():
     print("=" * 60)
     print("Windows 开发环境自动配置脚本")
@@ -875,6 +1017,9 @@ def main():
 
     # 6. 配置 Scoop aria2
     results.append(("Scoop aria2 配置", setup_scoop_aria2()))
+
+    # 7. 安装 Nerd Font（JetBrainsMono）并配置 Windows Terminal
+    results.append(("Nerd Font 安装", setup_nerd_font()))
 
     # 总结
     print("\n" + "=" * 60)
