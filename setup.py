@@ -835,20 +835,21 @@ def setup_utf8_env():
         return False
 
 
-def _configure_windows_terminal_font(font_face):
-    """更新 Windows Terminal 所有配置的默认字体"""
-    # 稳定版和预览版路径
-    wt_paths = [
-        Path(os.environ.get("LOCALAPPDATA", ""))
-        / "Packages" / "Microsoft.WindowsTerminal_8wekyb3d8bbwe"
+def _get_wt_settings_paths():
+    """返回 Windows Terminal 稳定版和预览版 settings.json 路径列表"""
+    local = os.environ.get("LOCALAPPDATA", "")
+    return [
+        Path(local) / "Packages" / "Microsoft.WindowsTerminal_8wekyb3d8bbwe"
         / "LocalState" / "settings.json",
-        Path(os.environ.get("LOCALAPPDATA", ""))
-        / "Packages" / "Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe"
+        Path(local) / "Packages" / "Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe"
         / "LocalState" / "settings.json",
     ]
 
+
+def _configure_windows_terminal_font(font_face):
+    """更新 Windows Terminal 所有配置的默认字体"""
     configured = False
-    for settings_path in wt_paths:
+    for settings_path in _get_wt_settings_paths():
         if not settings_path.exists():
             continue
         try:
@@ -876,6 +877,60 @@ def _configure_windows_terminal_font(font_face):
     if not configured:
         print_warn("未找到 Windows Terminal settings.json")
         print_warn(f"请手动设置：设置 > 配置文件 > 默认值 > 外观 > 字体 → {font_face}")
+
+
+def setup_windows_terminal_wsl_home():
+    """
+    将 Windows Terminal 中 WSL 配置文件的起始目录设为 Linux home（~）。
+    Windows Terminal 默认把 WSL 启动在 %USERPROFILE%（/mnt/c/Users/...），
+    导致每次开终端都在 Windows 目录而非 Linux home。
+    """
+    print_step("配置 Windows Terminal WSL 起始目录...")
+
+    fixed = False
+    for settings_path in _get_wt_settings_paths():
+        if not settings_path.exists():
+            continue
+        try:
+            content = settings_path.read_text(encoding='utf-8')
+            settings = json.loads(content)
+
+            changed = False
+            profiles = settings.setdefault("profiles", {})
+
+            # 1. defaults：对所有配置文件生效
+            defaults = profiles.setdefault("defaults", {})
+            if defaults.get("startingDirectory") != "~":
+                defaults["startingDirectory"] = "~"
+                changed = True
+
+            # 2. 遍历具体的 WSL profile，确保 WSL 配置也设置（避免 defaults 被覆盖）
+            for profile in profiles.get("list", []):
+                src = profile.get("source", "")
+                name = profile.get("name", "")
+                # 匹配所有 WSL 发行版
+                if "Windows.Terminal.Wsl" in src or "wsl" in name.lower() or "ubuntu" in name.lower():
+                    if profile.get("startingDirectory") != "~":
+                        profile["startingDirectory"] = "~"
+                        changed = True
+
+            if changed:
+                settings_path.write_text(
+                    json.dumps(settings, indent=4, ensure_ascii=False),
+                    encoding='utf-8'
+                )
+                print_ok(f"已设置 WSL 起始目录 → ~（Linux home）")
+                print_ok(f"  配置文件：{settings_path}")
+            else:
+                print_ok("WSL 起始目录已是 ~，无需修改")
+
+            fixed = True
+        except Exception as e:
+            print_warn(f"更新 Windows Terminal 设置失败：{e}")
+
+    if not fixed:
+        print_warn("未找到 Windows Terminal settings.json，跳过")
+    return fixed
 
 
 def setup_nerd_font():
@@ -1024,6 +1079,9 @@ def main():
 
     # 7. 安装 Nerd Font（JetBrainsMono）并配置 Windows Terminal
     results.append(("Nerd Font 安装", setup_nerd_font()))
+
+    # 8. 配置 Windows Terminal WSL 起始目录为 Linux home
+    results.append(("WSL 起始目录", setup_windows_terminal_wsl_home()))
 
     # 总结
     print("\n" + "=" * 60)
