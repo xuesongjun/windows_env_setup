@@ -901,10 +901,10 @@ def setup_nerd_font():
     )
     font_dir.mkdir(parents=True, exist_ok=True)
 
-    # 检查是否已安装
-    existing = list(font_dir.glob("JetBrainsMono*.ttf"))
+    # 检查是否已安装（只检测 NFMono 变体）
+    existing = list(font_dir.glob("JetBrainsMonoNerdFontMono-*.ttf"))
     if existing:
-        print_ok(f"JetBrainsMono Nerd Font 已安装（{len(existing)} 个文件），跳过下载")
+        print_ok(f"JetBrainsMono Nerd Font Mono 已安装（{len(existing)} 个文件），跳过下载")
         _configure_windows_terminal_font(FONT_FACE)
         return True
 
@@ -934,7 +934,8 @@ def setup_nerd_font():
         print()
         print_ok("下载完成")
 
-        # 解压并安装（只安装 TTF，跳过 Windows Compatible 后缀以减少数量）
+        # 解压并安装：只安装 NerdFontMono 变体（严格等宽，终端专用）
+        # 跳过 NFP（比例字体）、NL（无连字）、NF（图标非等宽）变体
         installed = 0
         reg_entries = {}
         with zipfile.ZipFile(tmp_zip, "r") as zf:
@@ -943,6 +944,9 @@ def setup_nerd_font():
                     continue
                 basename = Path(name).name
                 if not basename:
+                    continue
+                # 只保留 JetBrainsMonoNerdFontMono-*.ttf
+                if not basename.startswith("JetBrainsMonoNerdFontMono-"):
                     continue
                 dest = font_dir / basename
                 if dest.exists():
