@@ -765,7 +765,9 @@ https://www.nerdfonts.com/
 
 下载 **FantasqueSansMono** → 解压 → 右键 `FantasqueSansMonoNerdFontMono-*.ttf` → 安装（为当前用户）
 
-安装完成后在 Windows Terminal 设置 > 配置文件 > 默认值 > 外观 > 字体中选择 `FantasqueSansMono Nerd Font Mono`。
+安装完成后在 Windows Terminal 设置 > 配置文件 > 默认值 > 外观 > 字体中选择 `FantasqueSansM Nerd Font Mono`。
+
+> **注意**：Nerd Fonts v3 将字体 family 名缩写为 `FantasqueSansM`（去掉了 `ono`），搜索时使用缩写名。
 
 ### WSL2 / Linux 说明
 

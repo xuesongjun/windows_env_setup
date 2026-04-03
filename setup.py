@@ -943,7 +943,7 @@ def setup_nerd_font():
     import zipfile
     import tempfile
 
-    FONT_FACE = "FantasqueSansMono Nerd Font Mono"
+    FONT_FACE = "FantasqueSansM Nerd Font Mono"
     FONT_ZIP_URL = (
         "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FantasqueSansMono.zip"
     )
