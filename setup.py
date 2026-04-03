@@ -935,19 +935,20 @@ def setup_windows_terminal_wsl_home():
 
 def setup_nerd_font():
     """
-    下载并安装 JetBrainsMono Nerd Font（用户级，无需管理员权限），
+    下载并安装 FantasqueSansMono Nerd Font（用户级，无需管理员权限），
     并自动更新 Windows Terminal 默认字体配置。
+    字体来源：https://www.nerdfonts.com/
     """
     import urllib.request
     import zipfile
     import tempfile
 
-    FONT_FACE = "JetBrainsMono Nerd Font Mono"
+    FONT_FACE = "FantasqueSansMono Nerd Font Mono"
     FONT_ZIP_URL = (
-        "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
+        "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FantasqueSansMono.zip"
     )
 
-    print_step("安装 Nerd Font（JetBrainsMono Nerd Font）...")
+    print_step("安装 Nerd Font（FantasqueSansMono Nerd Font）...")
 
     # 用户字体目录（无需管理员权限，Windows 10 1809+ 支持）
     font_dir = (
@@ -957,14 +958,14 @@ def setup_nerd_font():
     font_dir.mkdir(parents=True, exist_ok=True)
 
     # 检查是否已安装（只检测 NFMono 变体）
-    existing = list(font_dir.glob("JetBrainsMonoNerdFontMono-*.ttf"))
+    existing = list(font_dir.glob("FantasqueSansMonoNerdFontMono-*.ttf"))
     if existing:
-        print_ok(f"JetBrainsMono Nerd Font Mono 已安装（{len(existing)} 个文件），跳过下载")
+        print_ok(f"FantasqueSansMono Nerd Font Mono 已安装（{len(existing)} 个文件），跳过下载")
         _configure_windows_terminal_font(FONT_FACE)
         return True
 
     # 下载
-    print_ok(f"正在下载 JetBrainsMono.zip（约 20-30 MB）...")
+    print_ok(f"正在下载 FantasqueSansMono.zip（约 10-20 MB）...")
     tmp_zip = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as f:
@@ -1000,8 +1001,8 @@ def setup_nerd_font():
                 basename = Path(name).name
                 if not basename:
                     continue
-                # 只保留 JetBrainsMonoNerdFontMono-*.ttf
-                if not basename.startswith("JetBrainsMonoNerdFontMono-"):
+                # 只保留 FantasqueSansMonoNerdFontMono-*.ttf（严格等宽，终端专用）
+                if not basename.startswith("FantasqueSansMonoNerdFontMono-"):
                     continue
                 dest = font_dir / basename
                 if dest.exists():
@@ -1077,7 +1078,7 @@ def main():
     # 6. 配置 Scoop aria2
     results.append(("Scoop aria2 配置", setup_scoop_aria2()))
 
-    # 7. 安装 Nerd Font（JetBrainsMono）并配置 Windows Terminal
+    # 7. 安装 Nerd Font（FantasqueSansMono）并配置 Windows Terminal
     results.append(("Nerd Font 安装", setup_nerd_font()))
 
     # 8. 配置 Windows Terminal WSL 起始目录为 Linux home

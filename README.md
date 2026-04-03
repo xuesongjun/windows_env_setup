@@ -14,6 +14,7 @@
 - [7. SSL 证书验证配置](#7-ssl-证书验证配置无管理员权限)
 - [8. 故障排查](#8-故障排查)
 - [9. 快速安装](#9-快速安装)
+- [10. Nerd Font 配置](#10-nerd-font-配置)
 
 ---
 
@@ -702,6 +703,7 @@ python setup.py
 - Git Bash 配置（.minttyrc、.bash_profile UTF-8）
 - SSL 证书验证跳过（curl/Git/npm，无管理员权限方案）
 - Scoop aria2 下载器
+- Nerd Font 安装（FantasqueSansMono）并自动配置 Windows Terminal 字体
 
 **注意**：重复运行 `setup.py` 会自动更新已有配置，不会跳过。
 
@@ -725,9 +727,56 @@ curl -k -x $env:HTTP_PROXY -L -o "$env:USERPROFILE\scoop\apps\tesseract\current\
 
 ---
 
+---
+
+## 10. Nerd Font 配置
+
+### 什么是 Nerd Font？
+
+[Nerd Fonts](https://www.nerdfonts.com/) 是在编程字体基础上添加了大量图标字形（Powerline、文件类型图标、Git 符号等）的字体集合，是 Starship 提示符、Neovim 插件等工具显示图标的前提。
+
+### 自动安装（推荐）
+
+`setup.py` 会自动完成：
+1. 从 GitHub 下载 FantasqueSansMono Nerd Font（用户级安装，无需管理员权限）
+2. 只安装 `NFMono` 变体（严格等宽，终端专用，跳过比例字体和无连字变体）
+3. 注册到 Windows 字体系统（HKCU，立即可用）
+4. 自动更新 Windows Terminal 默认字体为 `FantasqueSansMono Nerd Font Mono`
+
+```powershell
+python setup.py   # Nerd Font 作为第 7 步自动执行
+```
+
+### 字体选择说明
+
+| 变体 | 文件名前缀 | 用途 |
+|------|-----------|------|
+| NFMono（已安装） | `FantasqueSansMonoNerdFontMono-` | 终端，图标严格等宽 |
+| NF | `FantasqueSansMonoNerdFont-` | 通用，图标非等宽 |
+| NFP | `FantasqueSansMonoNerdFontPropo-` | 比例字体（非终端） |
+
+### 手动下载
+
+如果自动安装失败，可手动下载：
+
+```
+https://www.nerdfonts.com/
+```
+
+下载 **FantasqueSansMono** → 解压 → 右键 `FantasqueSansMonoNerdFontMono-*.ttf` → 安装（为当前用户）
+
+安装完成后在 Windows Terminal 设置 > 配置文件 > 默认值 > 外观 > 字体中选择 `FantasqueSansMono Nerd Font Mono`。
+
+### WSL2 / Linux 说明
+
+WSL2 终端字体由 Windows Terminal 控制，安装 Windows 侧字体即可。Linux 侧无需单独安装。`linux_env_setup/setup.sh` 会在安装结束时提示相关字体配置步骤。
+
+---
+
 ## 参考链接
 
 - [PowerShell 7 下载](https://github.com/PowerShell/PowerShell/releases)
 - [VS Code 设置](https://code.visualstudio.com/docs/getstarted/settings)
 - [Scoop 包管理器](https://scoop.sh/)
 - [aria2 项目](https://github.com/aria2/aria2)
+- [Nerd Fonts 官网](https://www.nerdfonts.com/)
