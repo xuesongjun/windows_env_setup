@@ -342,9 +342,12 @@ def get_pwsh_path():
                 if pwsh_exe.exists():
                     return str(pwsh_exe)
 
-    # 尝试用 where 命令
+    # 尝试用 where 命令（兼容 GBK 编码输出）
     try:
-        result = subprocess.run(["where", "pwsh"], capture_output=True, text=True)
+        result = subprocess.run(
+            ["where", "pwsh"], capture_output=True, text=True,
+            encoding="gbk", errors="replace"
+        )
         if result.returncode == 0:
             return result.stdout.strip().split("\n")[0]
     except Exception:
@@ -788,7 +791,15 @@ def setup_vscode_settings(ps7_path=None):
                 content = content[1:]
             settings = json.loads(content)
         except json.JSONDecodeError as e:
-            print_err(f"VS Code settings.json 格式错误: {e}")
+            # 显示具体出错行，帮助用户定位问题
+            lines = content.splitlines(keepends=True)
+            context = ""
+            if e.lineno and e.lineno <= len(lines):
+                context = (
+                    f"\n  出错行 {e.lineno}: {lines[e.lineno - 1].rstrip()}"
+                )
+            print_err(f"VS Code settings.json 格式错误（行 {e.lineno}, 列 {e.colno}）:{context}")
+            print_err(f"  请修复或删除 settings.json 后重新运行脚本")
             return False
 
     # 深层合并设置（保留用户自定义的终端配置等）
