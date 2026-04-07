@@ -11,6 +11,8 @@ import sys
 import json
 import subprocess
 import winreg
+import threading
+import time
 from pathlib import Path
 
 # 强制 UTF-8 输出
@@ -504,6 +506,142 @@ def install_powershell7():
                 os.unlink(tmp_zip)
             except OSError:
                 pass
+
+
+# ----------------------------------------------------------------------
+# 通用工具
+# ----------------------------------------------------------------------
+class _InputResult:
+    """用于在线程间传递输入结果的简单容器"""
+    def __init__(self):
+        self.value = None
+        self.event = threading.Event()
+
+
+def prompt_with_timeout(prompt_text, timeout=15, default="y"):
+    """
+    显示提示并等待用户输入，超时后返回默认值。
+
+    参数：
+        prompt_text : str  - 提示文字（如 "是否下载字体？[Y/n]: "）
+        timeout      : int  - 超时秒数，默认 15 秒
+        default      : str  - 超时后返回的值，"y" 或 "n"
+
+    返回：
+        "y" 或 "n"
+    """
+    result = _InputResult()
+
+    def _read():
+        try:
+            result.value = input(prompt_text).strip().lower()
+        except Exception:
+            result.value = None
+        result.event.set()
+
+    t = threading.Thread(target=_read, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+
+    if not result.event.is_set():
+        # 超时
+        print(f"（等待 {timeout}s 无响应，默认 {default}）")
+        return default
+
+    val = result.value
+    if val in ("y", "yes", ""):
+        return "y"
+    elif val in ("n", "no"):
+        return "n"
+    else:
+        return default
+
+
+# ----------------------------------------------------------------------
+# Windows Terminal PowerShell 7 配置
+# ----------------------------------------------------------------------
+def setup_windows_terminal_powershell7(pwsh_path=None):
+    """
+    确保 Windows Terminal 的默认 shell 指向 PowerShell 7，而非 Windows PowerShell 5.x。
+
+    逻辑：
+    - 优先使用传入的 pwsh_path
+    - 在 WT settings.json 中添加 PowerShell 7 profile（如果不存在）
+    - 将 defaultProfile 设为 PS7
+    """
+    print_step("配置 Windows Terminal 默认终端为 PowerShell 7...")
+
+    pwsh_path = pwsh_path or get_pwsh_path()
+    if not pwsh_path:
+        print_warn("未找到 PowerShell 7，跳过 Windows Terminal 配置")
+        return False
+
+    # 转换为正斜杠路径（WT settings.json 使用 /）
+    pwsh_path_slash = pwsh_path.replace("\\", "/")
+    ps7_profile_name = "PowerShell 7"
+
+    configured = False
+    for settings_path in _get_wt_settings_paths():
+        if not settings_path.exists():
+            continue
+        try:
+            content = settings_path.read_text(encoding='utf-8')
+            settings = json.loads(content)
+
+            changed = False
+            profiles = settings.setdefault("profiles", {})
+
+            # 1. 在 profiles.list 中查找或添加 PowerShell 7 条目
+            ps7_guid = None
+            ps7_found = False
+            for profile in profiles.get("list", []):
+                cmd = profile.get("commandline", "")
+                name = profile.get("name", "")
+                if "pwsh" in cmd.lower() or ps7_profile_name in name:
+                    ps7_found = True
+                    ps7_guid = profile.get("guid")
+                    if cmd != pwsh_path_slash:
+                        profile["commandline"] = pwsh_path_slash
+                        changed = True
+                        print_ok(f"已更新 PS7 profile commandline: {pwsh_path_slash}")
+
+            if not ps7_found:
+                import uuid
+                ps7_guid = "{" + str(uuid.uuid4()).upper() + "}"
+                new_profile = {
+                    "guid": ps7_guid,
+                    "name": ps7_profile_name,
+                    "commandline": pwsh_path_slash,
+                    "icon": "terminal-powershell",
+                    "startingDirectory": "~",
+                }
+                profiles.setdefault("list", []).insert(0, new_profile)
+                changed = True
+                print_ok(f"已添加 PowerShell 7 profile: {pwsh_path_slash}")
+
+            # 2. 确保 defaultProfile 指向 PS7
+            current_default = settings.get("defaultProfile", "")
+            if current_default != ps7_guid:
+                settings["defaultProfile"] = ps7_guid
+                changed = True
+                print_ok("已将 Windows Terminal 默认 shell 设为 PowerShell 7")
+
+            if changed:
+                settings_path.write_text(
+                    json.dumps(settings, indent=4, ensure_ascii=False),
+                    encoding='utf-8'
+                )
+                print_ok(f"已更新 Windows Terminal 设置: {settings_path}")
+            else:
+                print_ok("Windows Terminal 已使用 PowerShell 7 作为默认")
+
+            configured = True
+        except Exception as e:
+            print_warn(f"更新 Windows Terminal 设置失败: {e}")
+
+    if not configured:
+        print_warn("未找到 Windows Terminal settings.json，跳过")
+    return configured
 
 
 def setup_powershell_profile(ps7_path=None):
@@ -1123,6 +1261,13 @@ def setup_nerd_font():
         _configure_windows_terminal_font(FONT_FACE)
         return True
 
+    # 询问用户是否下载（默认 yes，超时 15s 自动确认）
+    print("")
+    choice = prompt_with_timeout("  是否下载并安装 Nerd Font（FantasqueSansMono）？ [Y/n]: ", timeout=15, default="y")
+    if choice != "y":
+        print_ok("跳过字体下载")
+        return True
+
     # 下载
     print_ok(f"正在下载 FantasqueSansMono.zip（约 10-20 MB）...")
     tmp_zip = None
@@ -1245,6 +1390,9 @@ def main():
 
     # 3. 配置 VS Code（传入 ps7_path 以配置终端配置）
     results.append(("VS Code 设置", setup_vscode_settings(ps7_path)))
+
+    # 3.5. 配置 Windows Terminal 默认使用 PowerShell 7（如已安装）
+    results.append(("Windows Terminal PS7", setup_windows_terminal_powershell7(ps7_path)))
 
     # 4. 配置 SSL 证书验证跳过
     results.append(("SSL 证书验证配置", setup_ssl_workarounds()))
