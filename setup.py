@@ -612,7 +612,7 @@ def setup_windows_terminal_powershell7(pwsh_path=None):
                     "guid": ps7_guid,
                     "name": ps7_profile_name,
                     "commandline": pwsh_path_slash,
-                    "icon": "terminal-powershell",
+                    "icon": "ms-appx:///ProfileIcons/{61c54bbd-c2c6-5271-96e7-009a87ff44bf}.png",
                     "startingDirectory": "~",
                 }
                 profiles.setdefault("list", []).insert(0, new_profile)
@@ -832,23 +832,25 @@ def setup_scoop_aria2():
     """
     print_step("配置 Scoop aria2 下载器...")
 
-    try:
-        # 检查 scoop 是否安装（scoop 是 .cmd/.ps1 脚本，需要 shell=True）
-        result = subprocess.run(
-            ["scoop", "--version"], capture_output=True, text=True, shell=True
-        )
-        if result.returncode != 0:
-            print_warn("Scoop 未安装，跳过配置")
-            return False
-    except FileNotFoundError:
+    def _scoop_run(args, check=False):
+        """执行 scoop 命令，兼容 Windows GBK 输出"""
+        try:
+            return subprocess.run(
+                args, capture_output=True, text=True,
+                encoding="gbk", errors="replace", shell=True
+            )
+        except (FileNotFoundError, UnicodeDecodeError):
+            return None
+
+    # 检查 scoop 是否安装
+    result = _scoop_run(["scoop", "--version"])
+    if result is None or result.returncode != 0:
         print_warn("Scoop 未安装，跳过配置")
         return False
 
     # 检查 aria2 是否安装
-    result = subprocess.run(
-        ["scoop", "list"], capture_output=True, text=True, shell=True
-    )
-    if "aria2" not in result.stdout:
+    result = _scoop_run(["scoop", "list"])
+    if result is None or "aria2" not in result.stdout:
         print_warn("aria2 未安装，请先运行: scoop install aria2")
         print_warn("如果 SSL 错误，手动下载 aria2 到 scoop/cache 目录")
         return False
