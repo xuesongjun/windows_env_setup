@@ -864,18 +864,50 @@ def setup_scoop_aria2():
         except (FileNotFoundError, UnicodeDecodeError):
             return None
 
-    # 检查 scoop 是否安装
+    def _install_scoop():
+        """通过 PowerShell 安装 Scoop（用户级，无需管理员权限）"""
+        print_ok("正在安装 Scoop...")
+        cmd = (
+            'powershell.exe -NoProfile -NonInteractive -Command '
+            '"Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; '
+            'irm get.scoop.sh | iex"'
+        )
+        try:
+            result = subprocess.run(
+                cmd, shell=True, text=True,
+                encoding="gbk", errors="replace"
+            )
+            if result.returncode == 0:
+                print_ok("Scoop 安装完成")
+                return True
+            else:
+                print_err(f"Scoop 安装失败（返回码 {result.returncode}）")
+                return False
+        except Exception as e:
+            print_err(f"Scoop 安装异常: {e}")
+            return False
+
+    # 检查 scoop 是否安装，未安装则自动安装
     result = _scoop_run(["scoop", "--version"])
     if result is None or result.returncode != 0:
-        print_warn("Scoop 未安装，跳过配置")
-        return False
+        print_warn("Scoop 未安装，尝试自动安装...")
+        if not _install_scoop():
+            return False
+        # 安装后重新检测
+        result = _scoop_run(["scoop", "--version"])
+        if result is None or result.returncode != 0:
+            print_err("Scoop 安装后仍无法调用，请重启终端后手动运行 scoop install aria2")
+            return False
 
-    # 检查 aria2 是否安装
+    # 检查 aria2 是否安装，未安装则自动安装
     result = _scoop_run(["scoop", "list"])
     if result is None or "aria2" not in result.stdout:
-        print_warn("aria2 未安装，请先运行: scoop install aria2")
-        print_warn("如果 SSL 错误，手动下载 aria2 到 scoop/cache 目录")
-        return False
+        print_ok("正在安装 aria2...")
+        install_result = _scoop_run(["scoop", "install", "aria2"])
+        if install_result is None or install_result.returncode != 0:
+            print_warn("aria2 安装失败，请手动运行: scoop install aria2")
+            return False
+        print_ok("aria2 安装完成")
 
     # 配置 scoop 使用 aria2
     configs = [
