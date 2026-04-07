@@ -351,11 +351,172 @@ def get_pwsh_path():
     return None
 
 
-def setup_powershell_profile():
-    """配置 PowerShell 7 profile（追加模式，不覆盖现有配置）"""
-    print_step("配置 PowerShell 7 Profile...")
+def get_ps5_version():
+    """获取当前 Windows PowerShell 5.x 版本号（如 5.1.22621.1）"""
+    try:
+        # 用 -Command 而非 -File，避免编码问题
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive",
+             "-Command", "$PSVersionTable.PSVersion.ToString()"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
 
-    # PowerShell 7 profile 路径
+
+def get_latest_powershell_version():
+    """
+    从 GitHub API 获取 PowerShell 最新稳定版版本号。
+    失败时返回 None，不阻塞主流程。
+    """
+    try:
+        import urllib.request
+        url = "https://api.github.com/repos/PowerShell/PowerShell/releases/latest"
+        proxy_handler = urllib.request.ProxyHandler()
+        opener = urllib.request.build_opener(proxy_handler)
+        with opener.open(url, timeout=10) as resp:
+            import json as _json
+            data = _json.loads(resp.read().decode())
+            tag = data.get("tag_name", "")
+            # tag_name 格式如 "v7.4.0"，去掉 'v' 前缀
+            return tag.lstrip("v")
+    except Exception:
+        return None
+
+
+def check_and_prompt_powershell_upgrade():
+    """
+    检查当前 PowerShell 是否为最新版本，如非最新则询问用户是否安装。
+    返回值：
+      "upgrade"   - 用户选择安装 PowerShell 7
+      "skip"      - 用户选择跳过，仅配置当前 PowerShell 5.x
+      "none"      - 无法检测版本，默认仅配置当前
+    """
+    print_step("检查 PowerShell 版本...")
+
+    # 检查 PS7 是否已安装
+    ps7_path = get_pwsh_path()
+    if ps7_path:
+        print_ok(f"PowerShell 7 已安装: {ps7_path}")
+        return "skip"  # PS7 已就绪，无需询问
+
+    # PS7 未安装，检查 PS5 版本
+    ps5_version = get_ps5_version()
+    if ps5_version:
+        print_ok(f"当前 Windows PowerShell: {ps5_version}")
+    else:
+        print_warn("无法获取当前 PowerShell 版本")
+
+    # 获取最新版本
+    latest = get_latest_powershell_version()
+    if latest is None:
+        print_warn("无法获取 PowerShell 最新版本（网络错误），将仅配置当前版本")
+        return "none"
+
+    # 比较版本（简单字符串比较，对 5.x vs 7.x 足够）
+    # 5.1.x < 7.x，所以直接比字符串即可
+    if ps5_version and ps5_version.startswith("5."):
+        print_warn(f"PowerShell 5.x 已过时，最新版本为 {latest}")
+        print("")
+        print(f"  推荐安装 PowerShell 7（支持现代脚本、跨平台、更好性能）")
+        print("")
+        while True:
+            choice = input(f"  是否安装 PowerShell 7？ [Y/n]: ").strip().lower()
+            if choice in ("", "y", "yes"):
+                return "upgrade"
+            elif choice in ("n", "no"):
+                print_ok("跳过安装，仅配置当前 PowerShell 5.x")
+                return "skip"
+            else:
+                print("  无效输入，请输入 Y 或 n")
+
+    return "none"
+
+
+def install_powershell7():
+    """
+    下载并安装 PowerShell 7（用户级安装，无需管理员权限）。
+    安装完成后返回 pwsh.exe 路径，失败返回 None。
+    """
+    import urllib.request
+
+    latest = get_latest_powershell_version()
+    if not latest:
+        print_err("无法获取 PowerShell 7 版本号，安装取消")
+        return None
+
+    # 构造下载链接（PowerShell-7-win-x64.zip）
+    zip_url = (
+        f"https://github.com/PowerShell/PowerShell/releases/download/"
+        f"v{latest}/PowerShell-{latest}-win-x64.zip"
+    )
+
+    print_step(f"下载 PowerShell 7 ({latest})...")
+
+    tmp_zip = None
+    try:
+        with __import__("tempfile").NamedTemporaryFile(suffix=".zip", delete=False) as f:
+            tmp_zip = f.name
+
+        proxy_handler = urllib.request.ProxyHandler()
+        opener = urllib.request.build_opener(proxy_handler)
+        with opener.open(zip_url, timeout=180) as resp, open(tmp_zip, "wb") as out:
+            total = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            chunk = 65536
+            while True:
+                data = resp.read(chunk)
+                if not data:
+                    break
+                out.write(data)
+                downloaded += len(data)
+                if total:
+                    pct = downloaded * 100 // total
+                    print(f"\r    进度: {pct:3d}%  ({downloaded//1024//1024} MB)", end="", flush=True)
+        print()
+        print_ok("下载完成，正在解压...")
+
+        # 解压到用户目录
+        install_base = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "PowerShell"
+        install_dir = install_base / f"{latest}-win-x64"
+        install_base.mkdir(parents=True, exist_ok=True)
+
+        with __import__("zipfile").ZipFile(tmp_zip, "r") as zf:
+            zf.extractall(install_base)
+
+        pwsh_path = install_dir / "pwsh.exe"
+        if pwsh_path.exists():
+            print_ok(f"PowerShell 7 已安装: {pwsh_path}")
+            return str(pwsh_path)
+        else:
+            print_err("解压后未找到 pwsh.exe")
+            return None
+
+    except Exception as e:
+        print_err(f"PowerShell 7 安装失败: {e}")
+        return None
+    finally:
+        if tmp_zip:
+            try:
+                os.unlink(tmp_zip)
+            except OSError:
+                pass
+
+
+def setup_powershell_profile(ps7_path=None):
+    """
+    配置 PowerShell profile（追加模式，不覆盖现有配置）。
+
+    参数：
+        ps7_path : str or None
+            PowerShell 7 可执行文件路径。如果为 None，则只配置 PS5。
+    """
+    print_step("配置 PowerShell Profile...")
+
+    # PowerShell 7 profile 路径（仅在 ps7_path 存在时配置）
     ps_profile_dir = Path.home() / "Documents" / "PowerShell"
     ps_profile_path = ps_profile_dir / "Microsoft.PowerShell_profile.ps1"
 
@@ -373,45 +534,37 @@ def setup_powershell_profile():
     BLOCK_START = "# ========== 以下由 windows_env_setup 自动添加 =========="
     BLOCK_START_ALT = "# ========== SSL 证书验证配置"  # 旧版直接写入时的开头
 
-    # 检查是否已存在且包含配置
-    if ps_profile_path.exists():
-        existing_content = ps_profile_path.read_text(encoding='utf-8', errors='ignore')
-
-        # 检查是否已包含我们的配置（需要替换更新）
-        if "智能代理配置" in existing_content:
-            # 找到旧配置块并替换为新内容
-            # 情况1：通过追加模式添加的（有 BLOCK_START 标记）
-            if BLOCK_START in existing_content:
-                user_part = existing_content.split(BLOCK_START)[0].rstrip()
-                new_content = user_part + "\n\n" + BLOCK_START + "\n" + profile_content
-            # 情况2：首次创建时直接写入的（整个文件都是我们的配置）
-            elif existing_content.lstrip().startswith(BLOCK_START_ALT):
-                new_content = profile_content
+    # 配置 PowerShell 7 profile（仅在找到/安装了 PS7 时）
+    if ps7_path:
+        ps_profile_dir.mkdir(parents=True, exist_ok=True)
+        if ps_profile_path.exists():
+            existing_content = ps_profile_path.read_text(encoding='utf-8', errors='ignore')
+            if "智能代理配置" in existing_content:
+                if BLOCK_START in existing_content:
+                    user_part = existing_content.split(BLOCK_START)[0].rstrip()
+                    new_content = user_part + "\n\n" + BLOCK_START + "\n" + profile_content
+                elif existing_content.lstrip().startswith(BLOCK_START_ALT):
+                    new_content = profile_content
+                else:
+                    new_content = profile_content
+                ps_profile_path.write_text(new_content, encoding='utf-8')
+                print_ok(f"已更新 PowerShell 7 Profile: {ps_profile_path}")
+            elif existing_content.strip():
+                print_ok(f"检测到现有 PowerShell 7 profile，追加配置")
+                with open(ps_profile_path, 'a', encoding='utf-8') as f:
+                    f.write("\n\n" + BLOCK_START + "\n")
+                    f.write(profile_content)
+                print_ok(f"已追加配置到: {ps_profile_path}")
             else:
-                # 无法确定边界，安全起见整体替换
-                new_content = profile_content
-
-            ps_profile_path.write_text(new_content, encoding='utf-8')
-            print_ok(f"已更新 Profile（替换旧配置）: {ps_profile_path}")
-            # 继续执行后面的 PS5 配置，不 return
-
-        # 文件存在且有内容，追加配置
-        elif existing_content.strip():
-            print_ok(f"检测到现有 profile，将追加配置")
-            with open(ps_profile_path, 'a', encoding='utf-8') as f:
-                f.write("\n\n" + BLOCK_START + "\n")
-                f.write(profile_content)
-            print_ok(f"已追加配置到: {ps_profile_path}")
+                ps_profile_path.write_text(profile_content, encoding='utf-8')
+                print_ok(f"已创建 PowerShell 7 Profile: {ps_profile_path}")
         else:
-            # 文件为空，直接写入
             ps_profile_path.write_text(profile_content, encoding='utf-8')
-            print_ok(f"已创建 profile: {ps_profile_path}")
+            print_ok(f"已创建 PowerShell 7 Profile: {ps_profile_path}")
     else:
-        # 文件不存在，创建新文件
-        ps_profile_path.write_text(profile_content, encoding='utf-8')
-        print_ok(f"已创建 profile: {ps_profile_path}")
+        print_warn("未找到 PowerShell 7，跳过 PS7 profile 配置")
 
-    # 同时配置 Windows PowerShell 5.x（可选）
+    # 配置 Windows PowerShell 5.x（无论是否安装 PS7，都配置）
     ps5_profile_dir = Path.home() / "Documents" / "WindowsPowerShell"
     ps5_profile_path = ps5_profile_dir / "Microsoft.PowerShell_profile.ps1"
 
@@ -433,8 +586,14 @@ def setup_powershell_profile():
     return True
 
 
-def setup_vscode_settings():
-    """配置 VS Code 设置"""
+def setup_vscode_settings(ps7_path=None):
+    """
+    配置 VS Code 设置。
+
+    参数：
+        ps7_path : str or None
+            PowerShell 7 可执行文件路径。如果为 None，则尝试自动查找。
+    """
     print_step("配置 VS Code 设置...")
 
     # VS Code settings.json 路径
@@ -444,8 +603,8 @@ def setup_vscode_settings():
         print_warn("VS Code 配置目录不存在，跳过 VS Code 配置")
         return False
 
-    # 查找 PowerShell 7 路径
-    pwsh_path = get_pwsh_path()
+    # 优先使用传入的 ps7_path，否则自动查找
+    pwsh_path = ps7_path or get_pwsh_path()
     if not pwsh_path:
         print_warn("未找到 PowerShell 7，跳过终端配置")
         pwsh_path = "pwsh.exe"
@@ -1060,14 +1219,32 @@ def main():
 
     results = []
 
+    # 0. 检查并提示 PowerShell 版本升级
+    ps7_path = None
+    upgrade_choice = check_and_prompt_powershell_upgrade()
+
+    if upgrade_choice == "upgrade":
+        # 用户选择安装 PowerShell 7
+        ps7_path = install_powershell7()
+        if ps7_path:
+            print_ok(f"PowerShell 7 安装成功: {ps7_path}")
+        else:
+            print_warn("PowerShell 7 安装失败，将仅配置当前 PowerShell 5.x")
+    elif upgrade_choice == "skip":
+        # 用户选择跳过，尝试查找已安装的 PS7
+        ps7_path = get_pwsh_path()
+    else:
+        # 无法检测版本，尝试查找已安装的 PS7
+        ps7_path = get_pwsh_path()
+
     # 1. 配置用户级 UTF-8 环境变量（最先执行，解决 pip 等工具的编码问题）
     results.append(("UTF-8 环境变量", setup_utf8_env()))
 
-    # 2. 配置 PowerShell Profile
-    results.append(("PowerShell Profile", setup_powershell_profile()))
+    # 2. 配置 PowerShell Profile（传入 ps7_path 以决定是否配置 PS7 profile）
+    results.append(("PowerShell Profile", setup_powershell_profile(ps7_path)))
 
-    # 3. 配置 VS Code
-    results.append(("VS Code 设置", setup_vscode_settings()))
+    # 3. 配置 VS Code（传入 ps7_path 以配置终端配置）
+    results.append(("VS Code 设置", setup_vscode_settings(ps7_path)))
 
     # 4. 配置 SSL 证书验证跳过
     results.append(("SSL 证书验证配置", setup_ssl_workarounds()))
