@@ -832,7 +832,18 @@ def setup_scoop_aria2():
     """
     print_step("配置 Scoop aria2 下载器...")
 
-    def _scoop_run(args, check=False):
+    # 询问用户是否配置 Scoop（默认 no，超时 15s 默认拒绝）
+    print("")
+    choice = prompt_with_timeout(
+        "  是否配置 Scoop（需先安装 Scoop）？ [y/N]: ",
+        timeout=15,
+        default="n"
+    )
+    if choice != "y":
+        print_ok("跳过 Scoop 配置")
+        return True
+
+    def _scoop_run(args):
         """执行 scoop 命令，兼容 Windows GBK 输出"""
         try:
             return subprocess.run(
@@ -863,9 +874,7 @@ def setup_scoop_aria2():
     ]
 
     for key, value in configs:
-        subprocess.run(
-            ["scoop", "config", key, value], capture_output=True, shell=True
-        )
+        _scoop_run(["scoop", "config", key, value])
         print_ok(f"已设置 scoop config {key} = {value}")
 
     return True
