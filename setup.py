@@ -607,10 +607,12 @@ def setup_windows_terminal_powershell7(pwsh_path=None):
                         profile["commandline"] = pwsh_path_slash
                         changed = True
                         print_ok(f"已更新 PS7 profile commandline: {pwsh_path_slash}")
-                    # 修正错误图标路径
+                    # 修正错误图标路径，或补设缺失的图标
+                    correct_icon = "ms-appx:///ProfileIcons/pwsh.png"
                     wrong_icon = "ms-appx:///ProfileIcons/{61c54bbd-c2c6-5271-96e7-009a87ff44bf}.png"
-                    if profile.get("icon") == wrong_icon:
-                        profile["icon"] = "ms-appx:///ProfileIcons/pwsh.png"
+                    current_icon = profile.get("icon", "")
+                    if current_icon != correct_icon:
+                        profile["icon"] = correct_icon
                         changed = True
 
             if not ps7_found:
